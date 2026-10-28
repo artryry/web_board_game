@@ -1,0 +1,40 @@
+[project]
+name = "card-table-backend"
+version = "0.1.0"
+requires-python = ">=3.12"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC"]
+
+# The local alembic/ folder would otherwise make ruff treat the alembic package as first-party.
+[tool.ruff.lint.isort]
+known-third-party = ["alembic"]
+
+[tool.ruff.lint.per-file-ignores]
+# Migration template imports op/sa for every revision, even ones that don't use them.
+"alembic/versions/*" = ["F401"]
+
+[tool.mypy]
+python_version = "3.12"
+plugins = ["pydantic.mypy"]
+exclude = ["venv/", "alembic/"]
+warn_unused_ignores = true
+warn_redundant_casts = true
+
+[[tool.mypy.overrides]]
+module = "app.engine.*"
+strict = true
+
+# aioboto3 and botocore ship no type stubs.
+[[tool.mypy.overrides]]
+module = ["aioboto3", "aioboto3.*", "botocore", "botocore.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

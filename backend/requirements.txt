@@ -1,0 +1,17 @@
+# Runtime
+fastapi==0.143.2
+uvicorn[standard]==0.54.0
+pydantic==2.14.1
+pydantic-settings==2.16.0
+sqlalchemy[asyncio]==2.1.6
+asyncpg==0.32.0
+alembic==1.20.1
+redis==8.1.0
+aioboto3==15.5.0
+
+# Dev tools
+httpx==0.28.1
+pytest==9.1.1
+pytest-asyncio==1.4.0
+ruff==0.17.2
+mypy==2.4.0
