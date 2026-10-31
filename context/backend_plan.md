@@ -22,7 +22,12 @@ The backend for the card-game constructor described in [project_description.md](
 M0 (infrastructure) is done:
 - `backend/app` has the app factory with a lifespan (DB engine, Redis, R2 client), `core/` (config, db, deps), `GET /api/health`, the R2 storage client, Alembic with an empty baseline, `pyproject.toml` (ruff, mypy, pytest) and pinned `requirements.txt`.
 - `docker-compose.yml` runs Postgres 16, Redis 7 and nginx (`nginx/default.conf`). File storage is Cloudflare R2, which is external, so there is no storage container. The official MinIO images were removed from Docker Hub and quay.io.
-- There is no JWT library yet (M1).
+
+M1 (auth) is done:
+- `users` table (UUID PK, case-insensitive unique username and email) with its Alembic migration. `Base.metadata` has a constraint naming convention.
+- `core/errors.py` (`AppError`, `UnauthorizedError` and handlers that give every error the `{"detail": {code, message}}` body), `core/security.py` (argon2 via pwdlib, PyJWT access and refresh tokens), `services/auth_service.py`, and `api/auth.py` with register, login, refresh and me.
+- `get_current_user` and the `CurrentUser` alias in `core/deps.py` protect any route.
+- `tests/conftest.py` runs API tests against `<POSTGRES_DB>_test`, with one rolled-back transaction per test.
 
 ## 2. Stack
 
@@ -45,14 +50,15 @@ backend/
     main.py            app factory, router registration, lifespan (DB/Redis/R2 clients)
     core/
       config.py        Settings (DB URL, Redis URL, R2 creds, JWT secret, limits)
+      errors.py        AppError / UnauthorizedError + handlers ({"detail": {code, message}})
       security.py      password hashing, JWT encode/decode
-      db.py            async engine + session factory
-      deps.py          get_db, get_redis, get_s3, get_current_user
-    models/            SQLAlchemy ORM: user, origin, card, deck, ruleset, game
+      db.py            Base (with constraint naming convention), async engine + session factory
+      deps.py          get_db, get_redis, get_s3, get_current_user (CurrentUser)
+    models/            SQLAlchemy ORM: user, origin, card, card_group, deck, ruleset, game
     schemas/           Pydantic request/response DTOs
       rules.py         RulesetDefinition (versioned)
     api/               router.py (mounts everything under /api) + routers: health, auth, catalog,
-                       origins, cards, decks, rulesets, share, rooms, games, uploads
+                       origins, cards, card_groups, decks, rulesets, share, rooms, games, uploads
     storage/           R2 (S3 API) client, presigned PUT, object key naming
     engine/            PURE game logic: no DB, no Redis, no network (see §7)
       registry.py      module registry + decorators
@@ -69,6 +75,7 @@ backend/
         field_effects/ stat_bonus, section_hp_bonus, free_move, ...  (used by origins)
     services/
       health_service.py dependency checks for /api/health
+      auth_service.py  register, authenticate, refresh, user_from_token
       room_service.py  room lifecycle: Redis <-> engine glue, timers
       share_service.py share codes, forking imports
     ws/
@@ -84,7 +91,8 @@ backend/
 ## 4. Data model (Postgres)
 
 ```
-users        id PK, username UNIQUE, email UNIQUE, password_hash, created_at
+users        id UUID PK, username UNIQUE (case-insensitive), email UNIQUE (stored lowercased),
+             password_hash, created_at
 
 origins      id PK, owner_id FK users NULL (NULL = system origin, readable by all),
              name, color, icon, background_art_key NULL,
@@ -92,8 +100,13 @@ origins      id PK, owner_id FK users NULL (NULL = system origin, readable by al
              is_public, created_at, updated_at
 
 cards        id PK, owner_id FK users, kind ('creature'|'spell'), name, origin_id FK origins,
-             mana_cost, dmg, hp NULL (spells), abilities JSONB  -- [{key, params}], max 2
+             mana_cost, dmg NULL (spells only), hp NULL (spells),
+             abilities JSONB  -- [{key, params}], max 2
+             group_id FK card_groups NULL (NULL = ungrouped; ON DELETE SET NULL),
              art_key NULL, is_public, created_at, updated_at
+
+card_groups  id PK, owner_id FK users, name (unique per owner, ignoring case),
+             share_code UNIQUE NULL (M3), created_at, updated_at
 
 decks        id PK, owner_id FK, name, origin_id FK origins, is_public, share_code UNIQUE NULL,
              created_at, updated_at
@@ -109,9 +122,13 @@ games        id PK, room_code, ruleset_snapshot JSONB,
 ```
 
 Notes:
+- **Every `id` is a UUID** (`uuid4`), so ids in URLs and share flows can't be guessed or counted.
 - **Origins are user-created rows**, like cards. Their behaviour comes from `field_effects`: a list of registered field-effect modules with params (§5). Users combine ready-made effects and never write code.
 - **System origins** (`owner_id = NULL`) are seeded as templates and can be used by everyone: `neutral`, `forest`, `volcano`, `ocean` and `mountain`. `neutral` is special: it has no field effects, and neutral cards can go into any deck.
 - A card may use one of the user's own origins or a system origin.
+- **Card groups** are folders that keep a user's card library tidy. A card is in at most one group, and cards without one are "ungrouped". A group can mix origins. Deleting a group keeps its cards and moves them to ungrouped.
+- **Single cards are never shared.** Card content is shared as a deck or a group (§8).
+- **A spell's `dmg` follows its effect.** It is positive for damage effects (`deal_damage`, `damage_section`) and negative for `heal` (the amount healed). Effects that don't use it, like `draw_cards`, take `null` or 0 (stored as `null`). Each spell module declares which of these it uses, and the catalog exposes it.
 - `games` stores the seed and the full action log, so any game can be replayed exactly (§7.9). The deck snapshots include the origin with its field effects.
 - A deck has a single origin. Its cards must have that origin or `neutral` (when the ruleset allows neutral cards).
 
@@ -231,12 +248,13 @@ Every change emits a typed event, for example `card_drawn`, `mana_changed`, `cre
 ### 7.8 Cost suggestion (never enforced)
 ```
 points              = hp + dmg + Σ ability.cost(params)     # creatures
-points              = dmg + effect.cost(params)             # spells
-suggested_mana_cost = ceil((points - 1) / 2)                # constants can be tuned in cost.py
-balance             = 'under' | 'balanced' | 'over'         # comparing the author's mana_cost to the suggestion
+points              = |dmg| + effect.cost(params)           # spells (null dmg counts as 0)
+suggested_mana_cost = ceil((points - 1) / 2), clamped to 0–10   # constants can be tuned in cost.py
+balance             = 'under' | 'balanced' | 'over'         # mana_cost vs the suggestion; 'balanced' only on an exact match
 ```
-- **The card author always sets the final `mana_cost`.** The server only checks hard bounds (mana 0–10, hp 1–99, dmg 0–99).
-- Card responses include `suggested_mana_cost` and `balance` so they can be shown in the UI.
+- **The card author always sets the final `mana_cost`.** The server only checks hard bounds: mana 0–10, hp 1–99, creature dmg 0–99, and spell dmg as its effect requires (1–99 for damage, −99 to −1 for heal, `null` otherwise).
+- Card responses include `suggested_mana_cost` and `balance`. **The balance label is shown only in the card library**, as information. The card editor shows only the suggestion. Neither one ever changes or blocks the user's `mana_cost`.
+- Game-wide constraints, such as how many cards a deck needs to start a game, are set in the ruleset (`deck.size`, §6), not by the cost formula.
 - `POST /api/cards/suggest-cost` returns the suggestion for an unsaved draft. The frontend can also work it out itself from the catalog's ability costs.
 
 ### 7.9 Hidden information and replays
@@ -252,14 +270,26 @@ All endpoints except register and login need `Authorization: Bearer <access toke
 | Auth | `POST /api/auth/register`, `POST /api/auth/login` → `{access, refresh}`, `POST /api/auth/refresh`, `GET /api/auth/me` |
 | Catalog | `GET /api/catalog` |
 | Origins | `GET /api/origins` (mine plus system origins), `POST /api/origins`, `GET/PATCH/DELETE /api/origins/{id}` (system origins are read-only), `POST /api/uploads/origin-art` (background image) |
-| Cards | `GET /api/cards` (mine; filters: origin_id, kind), `POST /api/cards`, `GET/PATCH/DELETE /api/cards/{id}`, `POST /api/cards/suggest-cost` |
+| Cards | `GET /api/cards` (mine; filters: origin_id, kind, group or ungrouped), `POST /api/cards`, `GET/PATCH/DELETE /api/cards/{id}`, `POST /api/cards/suggest-cost` |
+| Card groups | `GET /api/card-groups` (with card counts), `POST /api/card-groups`, `GET/PATCH/DELETE /api/card-groups/{id}` (delete keeps the cards), `POST /api/card-groups/{id}/share` → `{share_code}` (M3) |
 | Uploads | `POST /api/uploads/card-art` → `{upload_url, art_key}` (presigned PUT; png/jpeg/webp, 2 MB or less) |
 | Decks | `GET /api/decks`, `POST /api/decks`, `GET/PATCH/DELETE /api/decks/{id}`, `POST /api/decks/{id}/share` → `{share_code}` |
 | Rulesets | `GET /api/rulesets`, `POST /api/rulesets`, `GET/PATCH/DELETE /api/rulesets/{id}`, `POST /api/rulesets/validate`, `POST /api/rulesets/{id}/share` |
-| Sharing | `GET /api/share/{code}` (preview), `POST /api/share/{code}/import`. An import **forks** a copy into your library. Importing a deck also copies its cards and its custom origin; system origins are not copied. |
+| Sharing | `GET /api/share/{code}` (preview), `POST /api/share/{code}/import`. An import **forks** a copy into your library. Importing a deck also copies its cards and its custom origin. Importing a card group copies its cards and their custom origins into a new group. System origins are not copied. Only decks, card groups and rulesets have share codes: single cards are never shared. |
 | Rooms | `POST /api/rooms {ruleset_id}` → `{code}` (6 characters, no look-alike characters), `POST /api/rooms/join {code}`, `GET /api/rooms/{code}` |
 | History | `GET /api/games`, `GET /api/games/{id}` (with everything needed for a replay) |
 | Health | `GET /api/health` |
+
+Auth errors (every `401` carries `WWW-Authenticate: Bearer`):
+
+| Status | `code` | When |
+|---|---|---|
+| 409 | `username_taken` / `email_taken` | duplicate on register, including the DB unique-violation race |
+| 401 | `invalid_credentials` | wrong email or password (same body for both) |
+| 401 | `not_authenticated` | no `Authorization: Bearer` header |
+| 401 | `token_expired` | valid signature, `exp` in the past (the client should refresh) |
+| 401 | `token_invalid` | malformed, bad signature, missing claims, or the user no longer exists |
+| 401 | `token_wrong_type` | a refresh token used as access, or the other way round |
 
 Deleting a card that is used in one of your decks returns `409`, with the list of decks that use it. The same applies to deleting an origin that is used by any of your cards or decks.
 
@@ -319,8 +349,8 @@ Connect with `WS /ws/rooms/{code}?token=<access token>`. Every message has the f
 |---|---|---|
 | M0 | Infra: settings, DB session, Alembic, nginx conf, `/api/health` | `docker compose up` works, and the health check through nginx returns 200 (Postgres, Redis and R2 reachable) |
 | M1 | Auth | register, login, refresh and `me` work; protected routes return 401 without a token |
-| M2 | Module registry, catalog, origins, cards, art upload | origins and cards CRUD work; system origins are seeded; `catalog` lists the modules (including field effects) with their JSON Schemas; images upload to R2 through a presigned URL and are visible at the bucket's public URL |
-| M3 | Decks, share and import | deck rules are checked; importing a share code creates a forked copy |
+| M2 | Module registry, catalog, origins, cards, card groups, art upload | origins, cards and card groups CRUD work; system origins are seeded; `catalog` lists the modules (including field effects) with their JSON Schemas; images upload to R2 through a presigned URL and are visible at the bucket's public URL |
+| M3 | Decks, share and import (decks and card groups) | deck rules are checked; importing a deck or group share code creates a forked copy |
 | M4 | Rulesets, validation, share and import | `/validate` returns errors per field; the default ruleset is seeded |
 | M5 | Engine core | the full starter module set works; golden replay tests pass |
 | M6 | Rooms, WebSocket, Redis persistence, timers, reconnect | two WS clients can play a full game to a win |
@@ -361,6 +391,8 @@ The frontend milestones (F0–F6) in [frontend_plan.md](frontend_plan.md) are de
 |---|---|
 | UC1 Create a card | `POST /api/cards`, `POST /api/uploads/card-art`, `GET /api/catalog` |
 | *(new)* Create an origin | `POST /api/origins`, `POST /api/uploads/origin-art`, `GET /api/catalog` (field effects) |
+| *(new)* Organise cards into groups | `/api/card-groups`, `group_id` on cards |
+| *(new)* Share a card group | `POST /api/card-groups/{id}/share`, `/api/share/{code}` |
 | UC2 Create a deck | `POST /api/decks` |
 | UC3 Create a room | `POST /api/rooms` |
 | UC4 Create turn-flow rules | `POST /api/rulesets`, `POST /api/rulesets/validate` |

@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, HttpUrl, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -23,8 +24,12 @@ class Settings(BaseSettings):
     r2_secret_access_key: SecretStr = Field(min_length=1)
     r2_bucket: str = Field(min_length=1)
 
-    # Unused until M1 (auth).
-    jwt_secret: SecretStr
+    # HMAC algorithms only, since the secret is symmetric. 32 chars = 256 bits, the minimum
+    # key size for HS256 (RFC 7518 §3.2).
+    jwt_secret: SecretStr = Field(min_length=32)
+    jwt_algorithm: Literal["HS256", "HS384", "HS512"] = "HS256"
+    access_token_ttl_min: int = Field(default=15, ge=1)
+    refresh_token_ttl_days: int = Field(default=30, ge=1)
 
     health_check_timeout_s: float = 2.0
 

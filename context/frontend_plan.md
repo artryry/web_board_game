@@ -53,7 +53,8 @@ frontend/
     features/
       dashboard/         DashboardPage
       origins/           OriginListPage, OriginEditorPage, OriginPreview (field tile + badge)
-      cards/             CardLibraryPage, CardEditorPage, CardPreview, CostSuggestion, ArtUpload
+      cards/             CardLibraryPage, CardGroupPanel, BalanceLabel, CardEditorPage, CardPreview,
+                         CostSuggestion, ArtUpload
       decks/             DeckListPage, DeckBuilderPage, ManaCurveChart, ShareDialog
       rules/             RulesListPage, RulesEditorPage, BoardSettingsForm,
                          PhasePipeline (sortable), ModulePalette, PhaseItem
@@ -80,13 +81,13 @@ frontend/
 | `/` | Dashboard | My origins, cards, decks and rulesets (counts and most recent); **Create room**; **Join by code** |
 | `/origins` | Origin list | My origins plus system origins (read-only, marked "template", with a **Duplicate** button); new / edit / delete |
 | `/origins/new`, `/origins/:id` | Origin editor | See §4.0 |
-| `/cards` | Card library | Grid with filters (origin, kind, cost); new / edit / delete |
+| `/cards` | Card library | Cards organised by **group** (folders, plus "Ungrouped"): create, rename and delete groups, and move cards between them. A grid with filters (origin, kind, cost). Each card shows its **balance label** (*under-costed / balanced / over-costed*) from the server, as information only. New / edit / delete. Share a group by code (F2). |
 | `/cards/new`, `/cards/:id` | Card editor | See §4.1 |
 | `/decks` | Deck list | Origin badge, size, validity check against the default ruleset; share button |
 | `/decks/:id` | Deck builder | See §4.2 |
 | `/rules` | Rules list | My rulesets; duplicate / share / delete |
 | `/rules/new`, `/rules/:id` | Rules editor | See §4.3 |
-| `/share/:code` | Import | Preview of a shared deck or ruleset → **Import to my library** |
+| `/share/:code` | Import | Preview of a shared deck, card group or ruleset → **Import to my library** |
 | `/rooms/new` | Create room | Pick a ruleset → `POST /api/rooms` → go to `/room/:code` |
 | `/room/:code` | Lobby, then game | See §4.4 and §5. The same route switches from lobby to game when the game starts. |
 | `/games`, `/games/:id` | History / replay | Past matches; step-by-step replay |
@@ -109,14 +110,15 @@ frontend/
   - kind (creature / spell)
   - name
   - origin (my origins plus system origins, with a "+ New origin" shortcut that opens the origin editor in a modal)
-  - HP (creatures only) and DMG
+  - HP (creatures only) and DMG. For a spell, DMG follows the chosen effect's catalog entry: positive for damage, negative for heal, and hidden for effects that don't use it (for example `draw_cards`).
   - **mana cost**
   - abilities (creatures, at most 2) or effect (spells), chosen from the catalog and set up with `SchemaForm`
+  - group (optional)
   - art upload
 - **Cost suggestion (never enforced):**
   - `CostSuggestion` works out `suggested_mana_cost` live from the stats and the catalog's ability costs. It uses the same formula as backend §7.8, kept in one small shared function.
-  - It shows a balance label next to the mana field: *under-costed / balanced / over-costed*.
   - A **Use suggested** button copies the suggestion into the mana field.
+  - The editor shows no balance label. That label appears only in the card library (§3).
   - The mana field stays fully editable, and **Save is never disabled because of the formula**. Only hard bounds (for example mana 0–10) are checked.
 - **Live preview:** `CardPreview` shows the card exactly as it looks on the board.
 - **Art upload:** ask the backend for a presigned URL, `PUT` the file straight to Cloudflare R2 (the bucket needs a CORS rule allowing `PUT` from the app origin), then save `art_key` on the card. Check type and size (2 MB or less) in the browser first, and show a cropped preview.
@@ -203,8 +205,8 @@ frontend/
 | # | Milestone | Depends on | Done when |
 |---|---|---|---|
 | F0 | Vite scaffold, Tailwind, router, API client, generated types, auth pages, dashboard shell | M0, M1 | A user can register, log in and log out through nginx |
-| F1 | Catalog + `SchemaForm`, origin editor, card editor with cost suggestion, card library, art upload | M2 | Origins with field effects, and cards with abilities and art, can be created and edited; the cost suggestion updates live |
-| F2 | Deck builder, share dialog, import page | M3 | A deck can be shared by code and imported by another user |
+| F1 | Catalog + `SchemaForm`, origin editor, card editor with cost suggestion, card library with groups and balance labels, art upload | M2 | Origins with field effects, and cards with abilities and art, can be created and edited and sorted into groups; the cost suggestion updates live |
+| F2 | Deck builder, share dialog (decks and card groups), import page | M3 | A deck or a card group can be shared by code and imported by another user |
 | F3 | Rules editor (settings, sortable pipeline, inline validation, share) | M4 | The default ruleset can be loaded, edited, validated and saved |
 | F4 | Create room, join by code, lobby | M6 (lobby part) | Two browsers can meet in a lobby, pick decks and mark ready |
 | F5 | Game board: static render from a mocked state → live WS → drag-and-drop from `legal_actions` → event animations | M5, M6 | Two browsers can play a full game to a win |
@@ -222,7 +224,7 @@ Tip: build the board in F5 against **mock `game_state` JSON fixtures** first (an
 
 - **Never re-implement rules on the client.** Everything about which moves are allowed comes from `legal_actions`. This avoids desync bugs and makes cheating pointless.
 - **Show the pipeline.** The phase tracker explains the custom rules during play. That matters because every room can have different rules.
-- **Show the cost suggestion as advice, not a limit.** The balance label helps users make fair cards and still leaves the decision to them.
+- **Show the cost suggestion as advice, not a limit.** The suggested cost helps users price cards fairly, and the decision always stays theirs. The balance label appears only in the card library, as information.
 - **Start with templates.** Seeded starter decks and a default ruleset let a new user play within a minute, then customize later.
 - **Accessibility:** click-to-target as well as drag; visible focus; colour-blind-safe field-type colours with icons; a "reduced motion" setting that skips animations.
 - **Later:** spectator mode, chat with emotes, a public gallery of shared decks and rulesets, and dark/light themes.

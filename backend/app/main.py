@@ -7,6 +7,7 @@ from redis.asyncio import Redis
 from app.api.router import api_router
 from app.core.config import get_settings
 from app.core.db import create_engine, create_session_factory
+from app.core.errors import register_error_handlers
 from app.storage.client import create_s3_client
 
 
@@ -33,6 +34,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Card Table API", lifespan=lifespan)
+    register_error_handlers(app)
     app.include_router(api_router)
     return app
 

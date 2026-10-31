@@ -13,15 +13,17 @@ from app.models import Base
 # access to the values within the .ini file in use.
 config = context.config
 
-# Interpret the config file for Python logging.
-# This line sets up loggers basically.
-if config.config_file_name is not None:
+# Interpret the config file for Python logging. Callers that run migrations in-process
+# (the test suite) opt out, because fileConfig disables every existing logger.
+if config.config_file_name is not None and config.attributes.get("configure_logger", True):
     fileConfig(config.config_file_name)
 
-# The DB URL comes from Settings (.env), never from alembic.ini. "%" is escaped because
-# the ini config uses configparser interpolation.
-database_url = get_settings().database_url.get_secret_value()
-config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
+# The DB URL comes from Settings (.env), never from alembic.ini, unless the caller already set
+# one (the test suite points it at the test database). "%" is escaped because the ini config
+# uses configparser interpolation.
+if not config.get_main_option("sqlalchemy.url"):
+    database_url = get_settings().database_url.get_secret_value()
+    config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 
 target_metadata = Base.metadata
 
