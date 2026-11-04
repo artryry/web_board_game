@@ -27,7 +27,7 @@ The frontend for the card-game constructor described in [project_description.md]
 | Drag-and-drop | dnd-kit (`@dnd-kit/core`, `@dnd-kit/sortable`) |
 | Animation | Framer Motion |
 | Styling | Tailwind CSS |
-| Forms | React Hook Form + a small home-made `SchemaForm` for module params (it supports int, number with min/max, enum, bool and arrays of enums). This is lighter than rjsf. |
+| Forms | React Hook Form + a small home-made `SchemaForm` for module params (it supports int, number with min/max, enum, bool and arrays of enums; an array with `uniqueItems` renders as checkboxes). The backend guarantees every catalog schema is inline (no `$ref`) and uses only these types. Labels come from each property's `title`. This is lighter than rjsf. |
 | API types | `openapi-typescript`, generated from FastAPI's `/openapi.json` (`npm run gen:api`) |
 | Tests | Vitest + React Testing Library; Playwright for end-to-end tests |
 
@@ -98,7 +98,7 @@ frontend/
 - Works the same way as the card editor.
 - Fields:
   - name
-  - colour and icon (from a fixed, colour-blind-safe palette and icon set)
+  - colour and icon (from a fixed, colour-blind-safe palette and icon set, both listed in the catalog as `origin_colors` (`{key, hex}`) and `origin_icons` (keys mapped to the icon set). Origins store the keys.)
   - optional field background image, uploaded like card art (`POST /api/uploads/origin-art`)
   - **field effects**: up to 3, picked from the catalog's field-effect modules and set up with `SchemaForm` (for example `stat_bonus` +1 HP to own-origin creatures)
 - **Live preview:** `OriginPreview` shows a board section tile with this origin's background and effect badges, as it will look in a game.
@@ -110,13 +110,13 @@ frontend/
   - kind (creature / spell)
   - name
   - origin (my origins plus system origins, with a "+ New origin" shortcut that opens the origin editor in a modal)
-  - HP (creatures only) and DMG. For a spell, DMG follows the chosen effect's catalog entry: positive for damage, negative for heal, and hidden for effects that don't use it (for example `draw_cards`).
+  - HP (creatures only) and DMG. For a spell, DMG follows the chosen effect's catalog `dmg_use`: positive for `damage`, negative for `heal`, and hidden for `none` (for example `draw_cards`).
   - **mana cost**
   - abilities (creatures, at most 2) or effect (spells), chosen from the catalog and set up with `SchemaForm`
   - group (optional)
   - art upload
 - **Cost suggestion (never enforced):**
-  - `CostSuggestion` works out `suggested_mana_cost` live from the stats and the catalog's ability costs. It uses the same formula as backend §7.8, kept in one small shared function.
+  - `CostSuggestion` works out `suggested_mana_cost` live from the stats and the catalog's ability costs. Each feature and spell has `cost: {base, per_param}`, so an ability costs `base + Σ weight × params[name]`. It uses the same formula as backend §7.8, kept in one small shared function. Its unit tests run `backend/tests/fixtures/cost_cases.json`, the same cases the backend runs.
   - A **Use suggested** button copies the suggestion into the mana field.
   - The editor shows no balance label. That label appears only in the card library (§3).
   - The mana field stays fully editable, and **Save is never disabled because of the formula**. Only hard bounds (for example mana 0–10) are checked.

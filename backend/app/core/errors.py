@@ -1,5 +1,6 @@
 from collections.abc import Mapping
 from http import HTTPStatus
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -7,7 +8,11 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 
 class AppError(Exception):
-    """An expected error that maps to an HTTP response with a machine-readable code."""
+    """An expected error that maps to an HTTP response with a machine-readable code.
+
+    `extra` adds fields to the error body next to `code` and `message`, for example the cards
+    that still use an origin.
+    """
 
     def __init__(
         self,
@@ -15,12 +20,14 @@ class AppError(Exception):
         code: str,
         message: str,
         headers: dict[str, str] | None = None,
+        extra: Mapping[str, Any] | None = None,
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
         self.code = code
         self.message = message
         self.headers = headers
+        self.extra = extra
 
 
 class UnauthorizedError(AppError):
@@ -30,18 +37,22 @@ class UnauthorizedError(AppError):
 
 
 def _error_response(
-    status_code: int, code: str, message: str, headers: Mapping[str, str] | None
+    status_code: int,
+    code: str,
+    message: str,
+    headers: Mapping[str, str] | None,
+    extra: Mapping[str, Any] | None = None,
 ) -> JSONResponse:
     return JSONResponse(
         status_code=status_code,
-        content={"detail": {"code": code, "message": message}},
+        content={"detail": {**(extra or {}), "code": code, "message": message}},
         headers=headers,
     )
 
 
 async def _handle_app_error(_request: Request, exc: Exception) -> JSONResponse:
     assert isinstance(exc, AppError)
-    return _error_response(exc.status_code, exc.code, exc.message, exc.headers)
+    return _error_response(exc.status_code, exc.code, exc.message, exc.headers, exc.extra)
 
 
 async def _handle_http_exception(_request: Request, exc: Exception) -> JSONResponse:

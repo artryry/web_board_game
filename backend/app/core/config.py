@@ -23,6 +23,13 @@ class Settings(BaseSettings):
     r2_access_key_id: str = Field(min_length=1)
     r2_secret_access_key: SecretStr = Field(min_length=1)
     r2_bucket: str = Field(min_length=1)
+    # Public URL of the bucket (custom domain or r2.dev); card and origin art is read from here.
+    r2_public_base_url: HttpUrl
+
+    # Art uploads. A presigned PUT can't cap the size on R2, so the size is checked when the URL
+    # is requested and again with a HEAD when a card or origin is saved.
+    upload_max_bytes: int = Field(default=2 * 1024 * 1024, gt=0)
+    upload_url_ttl_s: int = Field(default=300, ge=60, le=3600)
 
     # HMAC algorithms only, since the secret is symmetric. 32 chars = 256 bits, the minimum
     # key size for HS256 (RFC 7518 §3.2).

@@ -1,7 +1,7 @@
 from collections.abc import AsyncIterator
 from typing import Annotated
 
-from fastapi import Depends, Request
+from fastapi import Depends, Query, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +10,7 @@ from app.core.config import Settings, get_settings
 from app.core.errors import UnauthorizedError
 from app.core.security import TokenType
 from app.models.user import User
+from app.schemas.common import DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT, PageParams
 from app.services import auth_service
 from app.storage.client import S3Client
 
@@ -43,4 +44,15 @@ async def get_current_user(
     )
 
 
+def get_page_params(
+    limit: Annotated[int, Query(ge=1, le=MAX_PAGE_LIMIT)] = DEFAULT_PAGE_LIMIT,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> PageParams:
+    return PageParams(limit=limit, offset=offset)
+
+
 CurrentUser = Annotated[User, Depends(get_current_user)]
+Db = Annotated[AsyncSession, Depends(get_db)]
+S3 = Annotated[S3Client, Depends(get_s3)]
+AppSettings = Annotated[Settings, Depends(get_settings)]
+Pagination = Annotated[PageParams, Depends(get_page_params)]

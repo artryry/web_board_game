@@ -1,6 +1,9 @@
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from enum import StrEnum
 from typing import Any
+from uuid import UUID, uuid4
 
 import aioboto3
 from botocore.config import Config
@@ -12,14 +15,30 @@ from app.core.config import Settings
 S3Client = Any
 
 _MISSING_BUCKET_CODES = {"404", "403", "NoSuchBucket"}
+_MISSING_OBJECT_CODES = {"404", "NoSuchKey", "NotFound"}
 
-# R2 ignores AWS regions ("auto"), and Cloudflare recommends sending checksums only when an
-# operation requires them, since newer botocore adds them by default.
+# R2 ignores AWS regions ("auto") and only accepts SigV4, also for presigned URLs. Cloudflare
+# recommends sending checksums only when an operation requires them, since newer botocore adds
+# them by default.
 _R2_CONFIG = Config(
     region_name="auto",
+    signature_version="s3v4",
     request_checksum_calculation="when_required",
     response_checksum_validation="when_required",
 )
+
+
+class ArtKind(StrEnum):
+    """The top-level prefix of an art object's key."""
+
+    CARD = "card-art"
+    ORIGIN = "origin-art"
+
+
+@dataclass(frozen=True)
+class ObjectInfo:
+    size: int
+    content_type: str | None
 
 
 @asynccontextmanager
@@ -42,3 +61,36 @@ async def bucket_exists(s3: S3Client, bucket: str) -> bool:
             return False
         raise
     return True
+
+
+def make_art_key(kind: ArtKind, user_id: UUID, extension: str) -> str:
+    """`{kind}/{user_id}/{uuid}.{ext}`: the user prefix is how a save checks who uploaded it."""
+    return f"{kind}/{user_id}/{uuid4()}.{extension}"
+
+
+async def presign_put(
+    s3: S3Client, bucket: str, key: str, content_type: str, expires_in: int
+) -> str:
+    """A presigned PUT URL. Content-Type is signed, so the upload must send exactly that type."""
+    url: str = await s3.generate_presigned_url(
+        "put_object",
+        Params={"Bucket": bucket, "Key": key, "ContentType": content_type},
+        ExpiresIn=expires_in,
+    )
+    return url
+
+
+async def head_object(s3: S3Client, bucket: str, key: str) -> ObjectInfo | None:
+    """Size and type of an object, or None if it doesn't exist."""
+    try:
+        response = await s3.head_object(Bucket=bucket, Key=key)
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") in _MISSING_OBJECT_CODES:
+            return None
+        raise
+    return ObjectInfo(size=int(response["ContentLength"]), content_type=response.get("ContentType"))
+
+
+def public_url(base_url: object, key: str) -> str:
+    # HttpUrl renders a bare domain with a trailing "/", so join without doubling it.
+    return f"{str(base_url).rstrip('/')}/{key}"

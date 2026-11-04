@@ -12,9 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app.core.config import Settings, get_settings
-from app.core.deps import get_db
+from app.core.deps import get_db, get_s3
 from app.main import create_app
-from tests.helpers import make_settings
+from tests.helpers import AuthedUser, FakeS3, make_settings, register_user
 
 ALEMBIC_INI = Path(__file__).resolve().parents[1] / "alembic.ini"
 
@@ -93,14 +93,36 @@ def settings() -> Settings:
 
 
 @pytest.fixture
-async def client(db: AsyncSession, settings: Settings) -> AsyncIterator[AsyncClient]:
+def fake_s3() -> FakeS3:
+    return FakeS3()
+
+
+@pytest.fixture
+async def client(
+    db: AsyncSession, settings: Settings, fake_s3: FakeS3
+) -> AsyncIterator[AsyncClient]:
     # ASGITransport doesn't run the lifespan, so Redis and R2 are never touched.
     app = create_app()
 
     async def override_db() -> AsyncIterator[AsyncSession]:
+        # In production each request gets a fresh session. The tests share one, so start every
+        # request with an empty identity map; otherwise it would see stale rows from earlier
+        # requests (for example a group's card_count).
+        db.expunge_all()
         yield db
 
     app.dependency_overrides[get_db] = override_db
     app.dependency_overrides[get_settings] = lambda: settings
+    app.dependency_overrides[get_s3] = lambda: fake_s3
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         yield client
+
+
+@pytest.fixture
+async def alice(client: AsyncClient) -> AuthedUser:
+    return await register_user(client, "alice")
+
+
+@pytest.fixture
+async def bob(client: AsyncClient) -> AuthedUser:
+    return await register_user(client, "bob")

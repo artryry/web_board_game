@@ -1,0 +1,57 @@
+[
+  {
+    "case": "smallest creature",
+    "kind": "creature", "hp": 1, "dmg": 0, "ability_costs": [], "mana_cost": 0,
+    "points": 1, "suggested": 0, "balance": "balanced"
+  },
+  {
+    "case": "1/1 creature",
+    "kind": "creature", "hp": 1, "dmg": 1, "ability_costs": [], "mana_cost": 1,
+    "points": 2, "suggested": 1, "balance": "balanced"
+  },
+  {
+    "case": "odd points round up",
+    "kind": "creature", "hp": 3, "dmg": 2, "ability_costs": [], "mana_cost": 2,
+    "points": 5, "suggested": 2, "balance": "balanced"
+  },
+  {
+    "case": "3/3 with taunt",
+    "kind": "creature", "hp": 3, "dmg": 3, "ability_costs": [2], "mana_cost": 4,
+    "points": 8, "suggested": 4, "balance": "balanced"
+  },
+  {
+    "case": "two abilities, priced cheap",
+    "kind": "creature", "hp": 4, "dmg": 4, "ability_costs": [2, 2], "mana_cost": 3,
+    "points": 12, "suggested": 6, "balance": "under"
+  },
+  {
+    "case": "priced above the suggestion",
+    "kind": "creature", "hp": 2, "dmg": 2, "ability_costs": [], "mana_cost": 5,
+    "points": 4, "suggested": 2, "balance": "over"
+  },
+  {
+    "case": "huge creature is clamped to 10",
+    "kind": "creature", "hp": 99, "dmg": 99, "ability_costs": [], "mana_cost": 10,
+    "points": 198, "suggested": 10, "balance": "balanced"
+  },
+  {
+    "case": "damage spell",
+    "kind": "spell", "hp": null, "dmg": 3, "ability_costs": [1], "mana_cost": 2,
+    "points": 4, "suggested": 2, "balance": "balanced"
+  },
+  {
+    "case": "heal costs the same as damage",
+    "kind": "spell", "hp": null, "dmg": -3, "ability_costs": [1], "mana_cost": 2,
+    "points": 4, "suggested": 2, "balance": "balanced"
+  },
+  {
+    "case": "spell without dmg",
+    "kind": "spell", "hp": null, "dmg": null, "ability_costs": [2], "mana_cost": 0,
+    "points": 2, "suggested": 1, "balance": "under"
+  },
+  {
+    "case": "zero points is clamped to 0",
+    "kind": "spell", "hp": null, "dmg": null, "ability_costs": [0], "mana_cost": 0,
+    "points": 0, "suggested": 0, "balance": "balanced"
+  }
+]

@@ -29,6 +29,13 @@ M1 (auth) is done:
 - `get_current_user` and the `CurrentUser` alias in `core/deps.py` protect any route.
 - `tests/conftest.py` runs API tests against `<POSTGRES_DB>_test`, with one rolled-back transaction per test.
 
+M2 (content) is done:
+- `engine/registry.py` (module kinds, base classes, decorators, `CostSpec`, `DmgUse`, `ModuleRegistry`) and every starter module in `engine/modules/<kind>/` (§5). `engine/cost.py` holds the cost suggestion (§7.8).
+- `GET /api/catalog` publishes the registry, plus the origin colours and icons.
+- `origins` (with the five seeded system origins), `cards` and `card_groups` tables, with CRUD under `/api/origins`, `/api/cards` and `/api/card-groups`, and `POST /api/cards/suggest-cost`.
+- Art upload: `POST /api/uploads/card-art` and `/api/uploads/origin-art` return a presigned R2 `PUT` URL. A saved art key is checked with a `HEAD`.
+- Shared pieces: `AppError(extra=...)`, `Page[T]` with the `Pagination` dependency, and `services/common.py` (`get_owned`, `paginate`, module-reference validation).
+
 ## 2. Stack
 
 | Concern | Choice |
@@ -74,8 +81,12 @@ backend/
         spells/        deal_damage, heal, draw_cards, ...
         field_effects/ stat_bonus, section_hp_bonus, free_move, ...  (used by origins)
     services/
+      common.py        get_owned (404 for other users' rows), paginate, module-ref validation
       health_service.py dependency checks for /api/health
       auth_service.py  register, authenticate, refresh, user_from_token
+      catalog_service.py  the catalog, built once from the registry
+      origin_service.py / card_service.py / card_group_service.py  content CRUD and rules
+      upload_service.py   presigned art uploads, art-key checks on save
       room_service.py  room lifecycle: Redis <-> engine glue, timers
       share_service.py share codes, forking imports
     ws/
@@ -95,15 +106,17 @@ users        id UUID PK, username UNIQUE (case-insensitive), email UNIQUE (store
              password_hash, created_at
 
 origins      id PK, owner_id FK users NULL (NULL = system origin, readable by all),
-             name, color, icon, background_art_key NULL,
-             field_effects JSONB  -- [{key, params}], max 3
-             is_public, created_at, updated_at
+             system_key UNIQUE NULL ('neutral', 'forest', ...; set only on system origins),
+             name, color (palette key), icon (icon key), background_art_key NULL,
+             field_effects JSONB  -- [{key, params}], max 3, no repeated key
+             is_public (M3), created_at, updated_at
 
-cards        id PK, owner_id FK users, kind ('creature'|'spell'), name, origin_id FK origins,
-             mana_cost, dmg NULL (spells only), hp NULL (spells),
+cards        id PK, owner_id FK users, kind ('creature'|'spell'), name, origin_id FK origins
+             (ON DELETE RESTRICT), mana_cost, dmg NULL, hp NULL (spells),
              abilities JSONB  -- [{key, params}], max 2
              group_id FK card_groups NULL (NULL = ungrouped; ON DELETE SET NULL),
-             art_key NULL, is_public, created_at, updated_at
+             art_key NULL, is_public (M3), created_at, updated_at
+             INDEX (owner_id, origin_id), INDEX (group_id)
 
 card_groups  id PK, owner_id FK users, name (unique per owner, ignoring case),
              share_code UNIQUE NULL (M3), created_at, updated_at
@@ -125,6 +138,11 @@ Notes:
 - **Every `id` is a UUID** (`uuid4`), so ids in URLs and share flows can't be guessed or counted.
 - **Origins are user-created rows**, like cards. Their behaviour comes from `field_effects`: a list of registered field-effect modules with params (§5). Users combine ready-made effects and never write code.
 - **System origins** (`owner_id = NULL`) are seeded as templates and can be used by everyone: `neutral`, `forest`, `volcano`, `ocean` and `mountain`. `neutral` is special: it has no field effects, and neutral cards can go into any deck.
+  - A data migration inserts them, so every database (the test DB too) has them. Code finds one by its `system_key`, never by UUID. A check constraint makes `owner_id` and `system_key` mutually exclusive.
+  - Changing or deleting one gives 403 `system_origin_read_only`. The frontend's "duplicate" button just `POST`s a copy.
+- **Origin colours and icons are keys**, not hex values or file names. Colours come from the Okabe–Ito colour-blind-safe palette plus grey. Both lists live in `schemas/origin.py`, and the catalog publishes them.
+- **`is_public` columns are deferred to M3**, when sharing arrives.
+- **Timestamps on content tables use `clock_timestamp()`**, not `now()`. `now()` is fixed for a whole transaction, so rows created together (an M3 import) would tie, and "newest first" would come out in random order.
 - A card may use one of the user's own origins or a system origin.
 - **Card groups** are folders that keep a user's card library tidy. A card is in at most one group, and cards without one are "ungrouped". A group can mix origins. Deleting a group keeps its cards and moves them to ungrouped.
 - **Single cards are never shared.** Card content is shared as a deck or a group (§8).
@@ -137,35 +155,68 @@ Notes:
 The registry is how the "modular" idea works. Each module is a Python class registered under a key:
 
 ```python
-@feature("taunt")
-class Taunt(FeatureModule):
-    name = "Taunt"
-    description = "Enemies in this lane must attack this creature first."
-    class Params(BaseModel):
-        pass
-    def cost(self, params) -> int: return 2
-    def on_query_blockers(self, ctx, creature): ...
+@feature("armor")
+class Armor(FeatureModule):
+    name = "Armor"
+    description = "Takes less damage from every hit."
+    cost_spec = CostSpec(per_param={"amount": 1})      # cost = base + Σ weight × param
+
+    class Params(ModuleParams):                        # extra="forbid", frozen
+        amount: Annotated[int, Field(ge=1, le=5)] = 1
+
+    def on_damaged(self, ctx, creature): ...           # behaviour hooks arrive in M5
 ```
 
 Each module declares:
-- a `key`, a display name and a description
-- a `Params` Pydantic model. Its JSON Schema is exported to the frontend.
-- `cost(params) -> int` (features and spell effects only), used by the cost suggestion
-- behaviour hooks (see §7.5)
+- a `key` (given to the decorator), a display name and a description
+- a `Params` model (a `ModuleParams` subclass). Its JSON Schema is exported to the frontend.
+- features and spell effects: a **declarative cost**, `cost_spec = CostSpec(base, per_param)`. `cost(params)` reads it. The catalog sends the same data, so the frontend computes exactly the same suggestion live.
+- spell effects: `dmg_use`, which says how the card's `dmg` is used: `damage` (1–99), `heal` (−99 to −1) or `none` (null)
+- phases: `interactive` (true only for `action_phase`). Interactive phases stop the runner and wait for player actions.
+- behaviour hooks (see §7.5, M5)
+
+Registration fails at import if a key is a duplicate, if `name`, `description`, `cost_spec` or `dmg_use` is missing, or if a cost weight names something that isn't an int param. `registry.get(FeatureModule, key)` and `registry.validate_params(...)` raise `UnknownModuleError` (`unknown_module`) or `InvalidParamsError` (`invalid_params`). Services turn these into 422 responses. Built-in modules are imported lazily on the first lookup.
+
+**Params schemas must fit `SchemaForm`**, and a test enforces it. Allowed property types:
+- int with `ge` and `le`
+- number
+- bool
+- string enum (`Literal`; never `Enum` classes, which produce `$ref`)
+- array of enum (`uniqueItems` when values can't repeat)
+
+Every module also uses `extra="forbid"`. Stored params are normalized: they are validated, with defaults filled in.
 
 `GET /api/catalog` returns every module, grouped by kind, with its params JSON Schema and cost information. **The frontend builds its card editor and rules editor forms from this catalog**, so adding a module needs no frontend change.
 
 ### Starter module set
 
-| Kind | Modules |
-|---|---|
-| Phases | `draw {count}`, `gain_mana` (Hearthstone-style: max mana +per_turn up to the cap, then refill), `action_phase {actor: active\|both, allow: [play, move, attack], time_limit_s = 90}`, `lane_combat` (automatic resolution, lane by lane), `discard_to_hand_limit`, `end_turn` |
-| Creature features | `taunt`, `charge` (can attack the turn it is played), `ranged` (can also hit a neighbouring lane), `armor {amount}`, `lifesteal_section` (damage dealt heals your own section), `deathrattle_damage {amount}`, `field_affinity` (extra bonus on its own field type) |
-| Spell effects | `deal_damage {target}`, `heal {target}`, `draw_cards {count}`, `buff {dmg, hp}`, `summon_token {hp, dmg}`, `move_enemy`, `damage_section` |
-| Field effects (used by origins) | `stat_bonus {applies_to: own_origin\|all_own\|enemy, hp, dmg}`, `section_hp_bonus {amount}`, `free_move` (moving costs no action), `mana_discount {card_kind, amount}`, `turn_start_heal_section {amount}`, `spell_power {amount}` |
-| Seeded system origins | `neutral` (no effects), `forest` (`stat_bonus` +1 HP to own-origin creatures), `volcano` (`stat_bonus` +1 DMG), `ocean` (`free_move`), `mountain` (`section_hp_bonus` +5) |
+These are starting values; costs and bounds can be tuned in the module files.
 
-Field effects have no cost formula. Their strength is limited by bounds on their params (for example `stat_bonus` is at most +2) and by allowing at most 3 effects per origin.
+| Kind | Module | Params (bounds, default) | Cost / extra |
+|---|---|---|---|
+| phase | `draw` | `count` 1–5 =1 | |
+| phase | `gain_mana` (Hearthstone-style: max mana +per_turn up to the cap, then refill), `lane_combat` (automatic, lane by lane), `discard_to_hand_limit`, `end_turn` | — | |
+| phase | `action_phase` | `actor` active\|both =active; `allow` 1–3 of play/move/attack, unique, =all; `time_limit_s` 10–600 =90 | interactive |
+| feature | `taunt`, `charge` (attacks the turn it is played), `ranged` (can also hit a neighbouring lane), `lifesteal_section` (damage dealt heals your own section) | — | 2 |
+| feature | `armor`, `deathrattle_damage` | `amount` 1–5 =1 | 1 × amount |
+| feature | `field_affinity` (+bonus DMG and HP on its own field type) | `bonus` 1–2 =1 | 1 × bonus |
+| spell | `deal_damage` | `target` enemy_creature\|any_creature | 1, dmg `damage` |
+| spell | `damage_section` | — | 2, dmg `damage` |
+| spell | `heal` | `target` creature\|section | 1, dmg `heal` |
+| spell | `draw_cards` | `count` 1–3 =1 | 2 × count, dmg `none` |
+| spell | `buff` | `dmg` 0–5 =1, `hp` 0–5 =1 | dmg + hp, dmg `none` |
+| spell | `summon_token` | `hp` 1–5 =1, `dmg` 0–5 =1 | hp + dmg, dmg `none` |
+| spell | `move_enemy` | — | 2, dmg `none` |
+| field effect | `stat_bonus` | `applies_to` own_origin\|all_own\|enemy; `hp` 0–2, `dmg` 0–2 (a penalty for `enemy`) | |
+| field effect | `section_hp_bonus` | `amount` 1–10 =5 | |
+| field effect | `free_move` (moving costs no action) | — | |
+| field effect | `mana_discount` | `card_kind` creature\|spell =spell; `amount` 1–2 =1 | |
+| field effect | `turn_start_heal_section` | `amount` 1–3 =1 | |
+| field effect | `spell_power` | `amount` 1–2 =1 | |
+
+Seeded system origins: `neutral` (no effects), `forest` (`stat_bonus` +1 HP to own-origin creatures), `volcano` (`stat_bonus` +1 DMG), `ocean` (`free_move`), `mountain` (`section_hp_bonus` +5).
+
+Field effects have no cost formula. Their strength is limited by bounds on their params (for example `stat_bonus` is at most +2) and by allowing at most 3 effects per origin, with no effect repeated.
 
 ## 6. Rules JSON (`RulesetDefinition`)
 
@@ -255,7 +306,8 @@ balance             = 'under' | 'balanced' | 'over'         # mana_cost vs the s
 - **The card author always sets the final `mana_cost`.** The server only checks hard bounds: mana 0–10, hp 1–99, creature dmg 0–99, and spell dmg as its effect requires (1–99 for damage, −99 to −1 for heal, `null` otherwise).
 - Card responses include `suggested_mana_cost` and `balance`. **The balance label is shown only in the card library**, as information. The card editor shows only the suggestion. Neither one ever changes or blocks the user's `mana_cost`.
 - Game-wide constraints, such as how many cards a deck needs to start a game, are set in the ruleset (`deck.size`, §6), not by the cost formula.
-- `POST /api/cards/suggest-cost` returns the suggestion for an unsaved draft. The frontend can also work it out itself from the catalog's ability costs.
+- `POST /api/cards/suggest-cost` returns the suggestion for an unsaved draft. It applies the same kind rules as saving a card. The frontend can also work it out itself from the catalog's `cost` data.
+- `tests/fixtures/cost_cases.json` holds the formula cases (`kind, hp, dmg, ability_costs, mana_cost` with the expected points, suggestion and balance). The backend runs them, and the frontend's tests must run the same file.
 
 ### 7.9 Hidden information and replays
 - `view_for` replaces the opponent's hand and deck with counts, and hides the order of the player's own deck.
@@ -272,7 +324,7 @@ All endpoints except register and login need `Authorization: Bearer <access toke
 | Origins | `GET /api/origins` (mine plus system origins), `POST /api/origins`, `GET/PATCH/DELETE /api/origins/{id}` (system origins are read-only), `POST /api/uploads/origin-art` (background image) |
 | Cards | `GET /api/cards` (mine; filters: origin_id, kind, group or ungrouped), `POST /api/cards`, `GET/PATCH/DELETE /api/cards/{id}`, `POST /api/cards/suggest-cost` |
 | Card groups | `GET /api/card-groups` (with card counts), `POST /api/card-groups`, `GET/PATCH/DELETE /api/card-groups/{id}` (delete keeps the cards), `POST /api/card-groups/{id}/share` → `{share_code}` (M3) |
-| Uploads | `POST /api/uploads/card-art` → `{upload_url, art_key}` (presigned PUT; png/jpeg/webp, 2 MB or less) |
+| Uploads | `POST /api/uploads/card-art` and `/api/uploads/origin-art`, body `{content_type, size}` → `{upload_url, art_key, expires_in}` (presigned PUT with the signed Content-Type; png/jpeg/webp, 2 MiB or less) |
 | Decks | `GET /api/decks`, `POST /api/decks`, `GET/PATCH/DELETE /api/decks/{id}`, `POST /api/decks/{id}/share` → `{share_code}` |
 | Rulesets | `GET /api/rulesets`, `POST /api/rulesets`, `GET/PATCH/DELETE /api/rulesets/{id}`, `POST /api/rulesets/validate`, `POST /api/rulesets/{id}/share` |
 | Sharing | `GET /api/share/{code}` (preview), `POST /api/share/{code}/import`. An import **forks** a copy into your library. Importing a deck also copies its cards and its custom origin. Importing a card group copies its cards and their custom origins into a new group. System origins are not copied. Only decks, card groups and rulesets have share codes: single cards are never shared. |
@@ -291,7 +343,44 @@ Auth errors (every `401` carries `WWW-Authenticate: Bearer`):
 | 401 | `token_invalid` | malformed, bad signature, missing claims, or the user no longer exists |
 | 401 | `token_wrong_type` | a refresh token used as access, or the other way round |
 
-Deleting a card that is used in one of your decks returns `409`, with the list of decks that use it. The same applies to deleting an origin that is used by any of your cards or decks.
+Deleting a card that is used in one of your decks returns `409`, with the list of decks that use it (M3). The same applies to deleting an origin that is used by any of your cards or decks.
+
+**Catalog shape** (`GET /api/catalog`):
+```json
+{ "phases":        [{"key", "name", "description", "params_schema", "interactive"}],
+  "features":      [{"key", "name", "description", "params_schema", "cost": {"base", "per_param"}}],
+  "spells":        [{"key", "name", "description", "params_schema", "cost", "dmg_use"}],
+  "field_effects": [{"key", "name", "description", "params_schema"}],
+  "origin_colors": [{"key": "vermillion", "hex": "#D55E00"}, ...],
+  "origin_icons":  ["circle", "leaf", "flame", ...] }
+```
+
+**Pagination:** list endpoints take `limit` (1–100, default 50) and `offset` (≥ 0), and return `{items, total}`. Ordering:
+- origins: system origins first, then the user's own, each by name
+- cards: newest first, filtered by `origin_id`, `kind`, `group_id` or `ungrouped=true` (both group filters at once gives 422)
+- card groups: by name
+
+**PATCH** changes only the fields that are sent. Null clears an optional field (`hp`, `dmg`, `group_id`, `art_key`, `background_art_key`) and is rejected for a required one. A card PATCH re-checks the whole merged card, so turning a creature into a spell also needs `hp: null`.
+
+**Errors** can carry extra fields next to `code` and `message` (`AppError(extra=...)`).
+
+Content errors:
+
+| Status | `code` | When |
+|---|---|---|
+| 404 | `origin_not_found` / `card_not_found` / `group_not_found` | missing, or owned by another user (the same answer, so ids can't be probed) |
+| 403 | `system_origin_read_only` | PATCH or DELETE on a system origin |
+| 409 | `origin_in_use` | deleting an origin that cards use; the body has `cards: [{id, name}]` |
+| 409 | `group_name_taken` | a group name the user already has, ignoring case (including the unique-index race) |
+| 422 | `unknown_module` / `invalid_params` | a module key not registered for that kind, or params its `Params` model rejects |
+| 422 | `invalid_field_effects` | the same field effect twice on an origin |
+| 422 | `invalid_stats` | hp/dmg don't fit the kind: a creature without hp or dmg, a spell with hp, or a spell dmg that doesn't match the effect's `dmg_use` |
+| 422 | `invalid_abilities` | a repeated ability, or a spell without exactly one effect |
+| 422 | `invalid_origin` / `invalid_group` | the card's origin isn't the user's own or a system origin, or the group isn't the user's |
+| 422 | `unsupported_art_type` / `art_too_large` | upload request with a type other than png/jpeg/webp, or over `UPLOAD_MAX_BYTES` (nothing is signed) |
+| 422 | `invalid_art_key` | a saved art key that isn't under `{card-art\|origin-art}/{user_id}/`, wasn't uploaded, or whose object is too large or of the wrong type (checked with `HEAD`, only when the key changes) |
+
+Malformed bodies and out-of-bounds values (for example `mana_cost` 11) still get FastAPI's default 422 body.
 
 ## 9. Rooms and the WebSocket protocol
 
@@ -340,7 +429,7 @@ Connect with `WS /ws/rooms/{code}?token=<access token>`. Every message has the f
   - `/` goes to the Vite dev server on `http://host.docker.internal:5173` (with WS upgrade for hot reload). In production it serves the built frontend.
   - There is no `/media/`: card art is served from the R2 public URL.
 - `.env.example` lists every variable used in `docker-compose.yml` and `Settings` (done in M0).
-- **R2 setup (manual, in the Cloudflare dashboard):** a bucket, an API token with Object Read & Write on it, public access (custom domain or r2.dev) for card art, and a CORS rule allowing `PUT` from the app origin for presigned uploads (needed in M2).
+- **R2 setup (manual, in the Cloudflare dashboard):** a bucket, an API token with Object Read & Write on it, public access (custom domain or r2.dev) for card art (`R2_PUBLIC_BASE_URL`), and a CORS rule allowing `PUT` and `GET` from the app origin with the `Content-Type` header, for browser uploads. R2 only supports presigned GET/HEAD/PUT/DELETE: there is no presigned POST, so the size can't be capped by the URL and is checked again with a `HEAD` on save.
 - `requirements.txt` and the baseline Alembic migration are done (M0). Still to do: `scripts/seed.py`, which creates starter cards, two starter decks and a default ruleset.
 
 ## 11. Milestones
