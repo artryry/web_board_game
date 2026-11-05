@@ -8,6 +8,7 @@ from tests.helpers import (
     AuthedUser,
     assert_error,
     create_card,
+    create_deck,
     create_group,
     create_origin,
     system_origin_id,
@@ -232,6 +233,60 @@ async def test_delete_card(client: AsyncClient, alice: AuthedUser) -> None:
 
     assert response.status_code == 204
     assert_error(after, 404, "card_not_found")
+
+
+async def test_delete_card_in_a_deck_lists_the_decks(
+    client: AsyncClient, alice: AuthedUser
+) -> None:
+    wolf = await create_card(client, alice)
+    beta = await create_deck(client, alice, [(wolf, 1)], name="beta")
+    alpha = await create_deck(client, alice, [(wolf, 2)], name="Alpha")
+
+    response = await client.delete(f"/api/cards/{wolf['id']}", headers=alice.headers)
+    await client.patch(f"/api/decks/{alpha['id']}", json={"cards": []}, headers=alice.headers)
+    await client.delete(f"/api/decks/{beta['id']}", headers=alice.headers)
+    after_removal = await client.delete(f"/api/cards/{wolf['id']}", headers=alice.headers)
+
+    detail = assert_error(response, 409, "card_in_use")
+    assert detail["decks"] == [
+        {"id": alpha["id"], "name": "Alpha"},
+        {"id": beta["id"], "name": "beta"},
+    ]
+    assert after_removal.status_code == 204
+
+
+async def test_origin_change_must_fit_the_decks_holding_the_card(
+    client: AsyncClient, alice: AuthedUser
+) -> None:
+    swamp = await create_origin(client, alice)
+    forest_id = await system_origin_id(client, alice, "forest")
+    neutral_id = await system_origin_id(client, alice)
+    toad = await create_card(client, alice, name="Toad", origin_id=swamp["id"])
+    deck = await create_deck(client, alice, [(toad, 2)], name="Bog", origin_id=swamp["id"])
+    url = f"/api/cards/{toad['id']}"
+
+    to_forest = await client.patch(url, json={"origin_id": forest_id}, headers=alice.headers)
+    to_neutral = await client.patch(url, json={"origin_id": neutral_id}, headers=alice.headers)
+    back_to_swamp = await client.patch(url, json={"origin_id": swamp["id"]}, headers=alice.headers)
+
+    detail = assert_error(to_forest, 409, "card_in_use")
+    assert detail["decks"] == [{"id": deck["id"], "name": "Bog"}]
+    assert to_neutral.status_code == 200  # neutral cards fit any deck
+    assert back_to_swamp.status_code == 200
+
+
+async def test_a_neutral_card_in_a_neutral_deck_keeps_its_origin(
+    client: AsyncClient, alice: AuthedUser
+) -> None:
+    forest_id = await system_origin_id(client, alice, "forest")
+    wolf = await create_card(client, alice)
+    await create_deck(client, alice, [(wolf, 1)])  # a neutral deck
+
+    response = await client.patch(
+        f"/api/cards/{wolf['id']}", json={"origin_id": forest_id}, headers=alice.headers
+    )
+
+    assert_error(response, 409, "card_in_use")
 
 
 async def test_other_users_cards_are_hidden(

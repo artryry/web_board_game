@@ -8,11 +8,17 @@ from app.core.config import Settings
 from app.core.errors import AppError
 from app.engine.registry import FieldEffectModule
 from app.models.card import Card
-from app.models.origin import Origin
+from app.models.deck import Deck
+from app.models.origin import NEUTRAL_KEY, Origin
 from app.schemas.common import PageParams
 from app.schemas.origin import OriginCreate, OriginOut, OriginUpdate
 from app.services import upload_service
-from app.services.common import has_duplicate_keys, normalize_module_refs, paginate
+from app.services.common import (
+    has_duplicate_keys,
+    id_name_list,
+    normalize_module_refs,
+    paginate,
+)
 from app.storage.client import ArtKind, S3Client, public_url
 
 
@@ -59,6 +65,13 @@ async def find_readable(db: AsyncSession, user_id: UUID, origin_id: UUID) -> Ori
     if origin is None or (origin.owner_id is not None and origin.owner_id != user_id):
         return None
     return origin
+
+
+async def neutral_origin_id(db: AsyncSession) -> UUID:
+    origin_id = await db.scalar(select(Origin.id).where(Origin.system_key == NEUTRAL_KEY))
+    if origin_id is None:
+        raise RuntimeError("The neutral system origin is missing; run the migrations")
+    return origin_id
 
 
 async def get_origin(db: AsyncSession, user_id: UUID, origin_id: UUID) -> Origin:
@@ -134,19 +147,26 @@ async def update_origin(
 
 async def delete_origin(db: AsyncSession, user_id: UUID, origin_id: UUID) -> None:
     origin = await _get_own_origin(db, user_id, origin_id)
-    cards = (
-        await db.execute(
-            select(Card.id, Card.name)
-            .where(Card.origin_id == origin.id)
-            .order_by(func.lower(Card.name), Card.id)
-        )
-    ).all()
-    if cards:
+    # Only the owner's content can use a custom origin: imports copy origins, never share them.
+    cards = await id_name_list(
+        db,
+        select(Card.id, Card.name)
+        .where(Card.owner_id == user_id, Card.origin_id == origin.id)
+        .order_by(func.lower(Card.name), Card.id),
+    )
+    decks = await id_name_list(
+        db,
+        select(Deck.id, Deck.name)
+        .where(Deck.owner_id == user_id, Deck.origin_id == origin.id)
+        .order_by(func.lower(Deck.name), Deck.id),
+    )
+    if cards or decks:
         raise AppError(
             409,
             "origin_in_use",
-            f"{len(cards)} card(s) still use this origin. Change or delete them first.",
-            extra={"cards": [{"id": str(card.id), "name": card.name} for card in cards]},
+            f"{len(cards)} card(s) and {len(decks)} deck(s) still use this origin. "
+            "Change or delete them first.",
+            extra={"cards": cards, "decks": decks},
         )
     await db.delete(origin)
     await db.commit()

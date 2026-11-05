@@ -3,7 +3,8 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
@@ -18,10 +19,17 @@ from app.engine.registry import (
     registry,
 )
 from app.models.card import Card
+from app.models.deck import Deck, DeckCard
 from app.schemas.card import CardCreate, CardFilters, CardOut, CardUpdate, SuggestCostRequest
 from app.schemas.common import PageParams
 from app.services import card_group_service, origin_service, upload_service
-from app.services.common import get_owned, has_duplicate_keys, paginate, resolve_module
+from app.services.common import (
+    get_owned,
+    has_duplicate_keys,
+    id_name_list,
+    paginate,
+    resolve_module,
+)
 from app.storage.client import ArtKind, S3Client, public_url
 
 
@@ -106,6 +114,11 @@ def _stored_ability_costs(card: Card) -> list[int]:
     return costs
 
 
+def card_sort_key(card: Card) -> tuple[int, str, UUID]:
+    """The order of cards in a deck or a share preview: by mana cost, then name."""
+    return card.mana_cost, card.name.lower(), card.id
+
+
 def card_out(card: Card, settings: Settings) -> CardOut:
     kind: CardKind = "creature" if card.kind == "creature" else "spell"
     suggested = suggest_mana_cost(card_points(kind, card.hp, card.dmg, _stored_ability_costs(card)))
@@ -152,6 +165,47 @@ async def get_card(db: AsyncSession, user_id: UUID, card_id: UUID) -> Card:
     return await get_owned(db, Card, card_id, user_id, "card_not_found", "Card not found")
 
 
+async def _decks_holding(
+    db: AsyncSession, card_id: UUID, origin_other_than: UUID | None = None
+) -> list[dict[str, str]]:
+    # Queried here rather than in deck_service, which imports this module for card_out.
+    stmt = (
+        select(Deck.id, Deck.name)
+        .join(DeckCard, DeckCard.deck_id == Deck.id)
+        .where(DeckCard.card_id == card_id)
+        .order_by(func.lower(Deck.name), Deck.id)
+    )
+    if origin_other_than is not None:
+        stmt = stmt.where(Deck.origin_id != origin_other_than)
+    return await id_name_list(db, stmt)
+
+
+async def _ensure_not_in_decks(db: AsyncSession, card_id: UUID) -> None:
+    decks = await _decks_holding(db, card_id)
+    if decks:
+        raise AppError(
+            409,
+            "card_in_use",
+            f"{len(decks)} deck(s) still hold this card. Remove it from them first.",
+            extra={"decks": decks},
+        )
+
+
+async def _ensure_fits_decks(db: AsyncSession, card_id: UUID, origin_id: UUID) -> None:
+    """A deck holds cards of its own origin plus neutral ones, so a new origin must still fit."""
+    if origin_id == await origin_service.neutral_origin_id(db):
+        return
+    decks = await _decks_holding(db, card_id, origin_other_than=origin_id)
+    if decks:
+        raise AppError(
+            409,
+            "card_in_use",
+            f"{len(decks)} deck(s) of another origin hold this card. "
+            "Remove it from them first, or make it neutral.",
+            extra={"decks": decks},
+        )
+
+
 async def _apply(
     db: AsyncSession, s3: S3Client, settings: Settings, user_id: UUID, card: Card, data: CardCreate
 ) -> None:
@@ -159,6 +213,9 @@ async def _apply(
 
     if await origin_service.find_readable(db, user_id, data.origin_id) is None:
         raise AppError(422, "invalid_origin", "Use one of your origins or a system origin")
+    # A new card has no origin yet, and no deck holds it.
+    if card.origin_id is not None and data.origin_id != card.origin_id:
+        await _ensure_fits_decks(db, card.id, data.origin_id)
     if data.group_id is not None:
         if await card_group_service.find_owned(db, user_id, data.group_id) is None:
             raise AppError(422, "invalid_group", "Use one of your card groups")
@@ -215,8 +272,15 @@ async def update_card(
 
 async def delete_card(db: AsyncSession, user_id: UUID, card_id: UUID) -> None:
     card = await get_card(db, user_id, card_id)
+    await _ensure_not_in_decks(db, card.id)
     await db.delete(card)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        # A deck took the card after our check, and the FK check at COMMIT stopped the delete.
+        await db.rollback()
+        await _ensure_not_in_decks(db, card_id)
+        raise
 
 
 def suggest_cost(data: SuggestCostRequest) -> int:

@@ -36,6 +36,12 @@ M2 (content) is done:
 - Art upload: `POST /api/uploads/card-art` and `/api/uploads/origin-art` return a presigned R2 `PUT` URL. A saved art key is checked with a `HEAD`.
 - Shared pieces: `AppError(extra=...)`, `Page[T]` with the `Pagination` dependency, and `services/common.py` (`get_owned`, `paginate`, module-reference validation).
 
+M3 (decks, share and import) is done:
+- `decks` and `deck_cards` tables, with CRUD under `/api/decks`. A deck is checked against its structural rules and the hard bounds (§4).
+- Cards and origins that decks use are protected with 409s (§8).
+- `share_codes` table. Decks and card groups can be shared, previewed (`GET /api/share/{code}`) and imported as a forked copy (`POST /api/share/{code}/import`).
+- Shared pieces: `OwnedMixin` (the `owner_id` column that `get_owned` relies on), `core/codes.py` (the no-look-alike code alphabet) and `id_name_list` for `[{id, name}]` error bodies.
+
 ## 2. Stack
 
 | Concern | Choice |
@@ -61,7 +67,8 @@ backend/
       security.py      password hashing, JWT encode/decode
       db.py            Base (with constraint naming convention), async engine + session factory
       deps.py          get_db, get_redis, get_s3, get_current_user (CurrentUser)
-    models/            SQLAlchemy ORM: user, origin, card, card_group, deck, ruleset, game
+      codes.py         random share and room codes from a no-look-alike alphabet
+    models/            SQLAlchemy ORM: user, origin, card, card_group, deck, share_code, ruleset, game
     schemas/           Pydantic request/response DTOs
       rules.py         RulesetDefinition (versioned)
     api/               router.py (mounts everything under /api) + routers: health, auth, catalog,
@@ -85,7 +92,8 @@ backend/
       health_service.py dependency checks for /api/health
       auth_service.py  register, authenticate, refresh, user_from_token
       catalog_service.py  the catalog, built once from the registry
-      origin_service.py / card_service.py / card_group_service.py  content CRUD and rules
+      origin_service.py / card_service.py / card_group_service.py / deck_service.py
+                       content CRUD and rules
       upload_service.py   presigned art uploads, art-key checks on save
       room_service.py  room lifecycle: Redis <-> engine glue, timers
       share_service.py share codes, forking imports
@@ -109,24 +117,31 @@ origins      id PK, owner_id FK users NULL (NULL = system origin, readable by al
              system_key UNIQUE NULL ('neutral', 'forest', ...; set only on system origins),
              name, color (palette key), icon (icon key), background_art_key NULL,
              field_effects JSONB  -- [{key, params}], max 3, no repeated key
-             is_public (M3), created_at, updated_at
+             created_at, updated_at
 
 cards        id PK, owner_id FK users, kind ('creature'|'spell'), name, origin_id FK origins
              (ON DELETE RESTRICT), mana_cost, dmg NULL, hp NULL (spells),
              abilities JSONB  -- [{key, params}], max 2
              group_id FK card_groups NULL (NULL = ungrouped; ON DELETE SET NULL),
-             art_key NULL, is_public (M3), created_at, updated_at
+             art_key NULL, created_at, updated_at
              INDEX (owner_id, origin_id), INDEX (group_id)
 
 card_groups  id PK, owner_id FK users, name (unique per owner, ignoring case),
-             share_code UNIQUE NULL (M3), created_at, updated_at
-
-decks        id PK, owner_id FK, name, origin_id FK origins, is_public, share_code UNIQUE NULL,
              created_at, updated_at
-deck_cards   deck_id FK, card_id FK, count       PK(deck_id, card_id)
+
+decks        id PK, owner_id FK users, name, origin_id FK origins (ON DELETE RESTRICT),
+             created_at, updated_at
+             INDEX (owner_id, origin_id)
+deck_cards   deck_id FK decks (ON DELETE CASCADE),
+             card_id FK cards (NO ACTION, DEFERRABLE INITIALLY DEFERRED), count (>= 1)
+             PK(deck_id, card_id), INDEX (card_id)
+
+share_codes  code PK (10 characters), created_at,
+             deck_id FK decks NULL UNIQUE, card_group_id FK card_groups NULL UNIQUE
+             (both ON DELETE CASCADE; exactly one is set; M4 adds ruleset_id)
 
 rulesets     id PK, owner_id FK, name, definition JSONB, schema_version,
-             is_public, share_code UNIQUE NULL, created_at, updated_at
+             created_at, updated_at   -- shared through a share_codes row (M4)
 
 games        id PK, room_code, ruleset_snapshot JSONB,
              p1_id FK, p2_id FK, p1_deck_snapshot JSONB, p2_deck_snapshot JSONB,
@@ -141,14 +156,24 @@ Notes:
   - A data migration inserts them, so every database (the test DB too) has them. Code finds one by its `system_key`, never by UUID. A check constraint makes `owner_id` and `system_key` mutually exclusive.
   - Changing or deleting one gives 403 `system_origin_read_only`. The frontend's "duplicate" button just `POST`s a copy.
 - **Origin colours and icons are keys**, not hex values or file names. Colours come from the Okabe–Ito colour-blind-safe palette plus grey. Both lists live in `schemas/origin.py`, and the catalog publishes them.
-- **`is_public` columns are deferred to M3**, when sharing arrives.
+- **There is no `is_public` column.** A share code is an unlisted link. A public flag waits until there is a public gallery.
 - **Timestamps on content tables use `clock_timestamp()`**, not `now()`. `now()` is fixed for a whole transaction, so rows created together (an M3 import) would tie, and "newest first" would come out in random order.
 - A card may use one of the user's own origins or a system origin.
 - **Card groups** are folders that keep a user's card library tidy. A card is in at most one group, and cards without one are "ungrouped". A group can mix origins. Deleting a group keeps its cards and moves them to ungrouped.
 - **Single cards are never shared.** Card content is shared as a deck or a group (§8).
 - **A spell's `dmg` follows its effect.** It is positive for damage effects (`deal_damage`, `damage_section`) and negative for `heal` (the amount healed). Effects that don't use it, like `draw_cards`, take `null` or 0 (stored as `null`). Each spell module declares which of these it uses, and the catalog exposes it.
 - `games` stores the seed and the full action log, so any game can be replayed exactly (§7.9). The deck snapshots include the origin with its field effects.
-- A deck has a single origin. Its cards must have that origin or `neutral` (when the ruleset allows neutral cards).
+- **A deck has a single origin**, one of the user's own or a system origin. Its cards are the user's own, and have that origin or `neutral`. A neutral deck holds only neutral cards.
+  - A stored deck is checked only against hard bounds: 1–4 copies of a card, and at most 60 cards in total. There is no minimum, so an unfinished deck can be saved.
+  - The ruleset's `deck` rules (size, `max_copies` within 1–4, `allow_neutral`) are checked when the deck is picked for a room (M6), and on the client for display (F2).
+- **Share codes** live in one `share_codes` table, with one FK column per kind. A code is unique across decks, groups and (M4) rulesets, `GET /api/share/{code}` needs one lookup, and deleting the deck or group deletes its code in the database.
+  - The codes are 10 characters from the no-look-alike alphabet in `core/codes.py` (about 50 bits), so they can't be guessed.
+- **Content in use is protected in the database too**, behind the 409s in §8: `cards.origin_id` and `decks.origin_id` are `RESTRICT`, and `deck_cards.card_id` is a **deferred** FK.
+  - Deleting a user is one `DELETE FROM users`, and the cascades remove all their content.
+  - `deck_cards.card_id` can't be `RESTRICT`. Postgres deletes a user's cards (a direct cascade) before their `deck_cards` rows (a cascade through `decks`), and an immediate check fails in between. A deferred check runs at COMMIT, after every cascade, and still refuses a card that a deck holds.
+  - The origin FKs can stay `RESTRICT`, because cards and decks are direct cascades from `users`, so they are gone before an origin's check runs.
+  - Tests never commit, so they bring the deferred check forward with `SET CONSTRAINTS ALL IMMEDIATE`.
+- **Forks outlive their source.** An imported copy points only at its own copied origins (or system origins), so the author can delete the original origin, deck or group, or their whole account, and the copy stays as it is. It keeps the author's `art_key`, which keeps working because art objects are never deleted (§13).
 
 ## 5. Module registry
 
@@ -300,10 +325,11 @@ Every change emits a typed event, for example `card_drawn`, `mana_changed`, `cre
 ```
 points              = hp + dmg + Σ ability.cost(params)     # creatures
 points              = |dmg| + effect.cost(params)           # spells (null dmg counts as 0)
-suggested_mana_cost = ceil((points - 1) / 2), clamped to 0–10   # constants can be tuned in cost.py
+suggested_mana_cost = max(0, ceil((points - 1) / 2))          # no upper cap; constants can be tuned in cost.py
 balance             = 'under' | 'balanced' | 'over'         # mana_cost vs the suggestion; 'balanced' only on an exact match
 ```
 - **The card author always sets the final `mana_cost`.** The server only checks hard bounds: mana 0–10, hp 1–99, creature dmg 0–99, and spell dmg as its effect requires (1–99 for damage, −99 to −1 for heal, `null` otherwise).
+- **Only the suggestion has no upper cap.** A card worth more than 10 mana gets a suggestion above 10, so it is labelled `under` even at the maximum cost of 10. The card's own `mana_cost` stays 0–10.
 - Card responses include `suggested_mana_cost` and `balance`. **The balance label is shown only in the card library**, as information. The card editor shows only the suggestion. Neither one ever changes or blocks the user's `mana_cost`.
 - Game-wide constraints, such as how many cards a deck needs to start a game, are set in the ruleset (`deck.size`, §6), not by the cost formula.
 - `POST /api/cards/suggest-cost` returns the suggestion for an unsaved draft. It applies the same kind rules as saving a card. The frontend can also work it out itself from the catalog's `cost` data.
@@ -323,11 +349,11 @@ All endpoints except register and login need `Authorization: Bearer <access toke
 | Catalog | `GET /api/catalog` |
 | Origins | `GET /api/origins` (mine plus system origins), `POST /api/origins`, `GET/PATCH/DELETE /api/origins/{id}` (system origins are read-only), `POST /api/uploads/origin-art` (background image) |
 | Cards | `GET /api/cards` (mine; filters: origin_id, kind, group or ungrouped), `POST /api/cards`, `GET/PATCH/DELETE /api/cards/{id}`, `POST /api/cards/suggest-cost` |
-| Card groups | `GET /api/card-groups` (with card counts), `POST /api/card-groups`, `GET/PATCH/DELETE /api/card-groups/{id}` (delete keeps the cards), `POST /api/card-groups/{id}/share` → `{share_code}` (M3) |
+| Card groups | `GET /api/card-groups` (with card counts and `share_code`), `POST /api/card-groups`, `GET/PATCH/DELETE /api/card-groups/{id}` (delete keeps the cards), `POST /api/card-groups/{id}/share` → `{share_code}`, `DELETE /api/card-groups/{id}/share` (revoke) |
 | Uploads | `POST /api/uploads/card-art` and `/api/uploads/origin-art`, body `{content_type, size}` → `{upload_url, art_key, expires_in}` (presigned PUT with the signed Content-Type; png/jpeg/webp, 2 MiB or less) |
-| Decks | `GET /api/decks`, `POST /api/decks`, `GET/PATCH/DELETE /api/decks/{id}`, `POST /api/decks/{id}/share` → `{share_code}` |
+| Decks | `GET /api/decks` (summaries: `origin_id`, `card_count`, `share_code`), `POST /api/decks`, `GET/PATCH/DELETE /api/decks/{id}` (with `cards: [{card, count}]`), `POST /api/decks/{id}/share` → `{share_code}`, `DELETE /api/decks/{id}/share` (revoke) |
 | Rulesets | `GET /api/rulesets`, `POST /api/rulesets`, `GET/PATCH/DELETE /api/rulesets/{id}`, `POST /api/rulesets/validate`, `POST /api/rulesets/{id}/share` |
-| Sharing | `GET /api/share/{code}` (preview), `POST /api/share/{code}/import`. An import **forks** a copy into your library. Importing a deck also copies its cards and its custom origin. Importing a card group copies its cards and their custom origins into a new group. System origins are not copied. Only decks, card groups and rulesets have share codes: single cards are never shared. |
+| Sharing | `GET /api/share/{code}` (preview), `POST /api/share/{code}/import` → 201. Any logged-in user can use a code, and lower-case input works. An import **forks** a copy into your library, in one transaction (see below). Only decks, card groups and rulesets have share codes: single cards are never shared. |
 | Rooms | `POST /api/rooms {ruleset_id}` → `{code}` (6 characters, no look-alike characters), `POST /api/rooms/join {code}`, `GET /api/rooms/{code}` |
 | History | `GET /api/games`, `GET /api/games/{id}` (with everything needed for a replay) |
 | Health | `GET /api/health` |
@@ -343,7 +369,33 @@ Auth errors (every `401` carries `WWW-Authenticate: Bearer`):
 | 401 | `token_invalid` | malformed, bad signature, missing claims, or the user no longer exists |
 | 401 | `token_wrong_type` | a refresh token used as access, or the other way round |
 
-Deleting a card that is used in one of your decks returns `409`, with the list of decks that use it (M3). The same applies to deleting an origin that is used by any of your cards or decks.
+**Content in use** (409, each with a `[{id, name}]` list, sorted by name):
+- Deleting a card that a deck holds gives `card_in_use` with `decks`. The deferred FK (§4) backs this up at COMMIT, including the race where a deck takes the card during the delete.
+- Changing a card's origin so that it no longer fits a deck that holds it also gives `card_in_use`. Neutral always fits.
+- Deleting an origin that cards or decks use gives `origin_in_use` with both `cards` and `decks`.
+
+**Sharing:**
+- `POST .../share` returns the existing code if there is one, so sharing again gives the same code. `DELETE .../share` removes it (204, even when there is none), and the old link stops working. Sharing again makes a new code.
+- Only the owner can share or revoke. Other users get the same 404 as for any other request on the deck or group.
+- **The preview and the import use the current content**, not a snapshot taken when the code was made.
+- **Import:**
+  - Each custom origin is copied once, however many cards use it. System origins are never copied; the copies use them directly.
+  - The cards are copied with the remapped origin, and they **keep the original `art_key`** (art is never deleted). The key is checked only when it changes, so editing a copy never needs the author's object.
+  - A deck's copied cards go into a new card group named after the deck (no group for an empty deck). A group import makes a new group with the source's name.
+  - A taken group name gets the first free ` (n)`, cut to fit 40 characters.
+  - Importing your own code works as "duplicate".
+
+```json
+// GET /api/share/{code}: discriminated by kind
+{ "kind": "deck", "code", "name", "author": "<username>", "origin": OriginOut,
+  "cards": [{"card": CardOut, "count"}], "card_count" }
+{ "kind": "card_group", "code", "name", "author",
+  "origins": [OriginOut],               // every origin the cards use: system first, then by name
+  "cards": [{"card": CardOut, "count": 1}], "card_count" }
+
+// POST /api/share/{code}/import
+{ "kind": "deck", "deck": DeckOut }  |  { "kind": "card_group", "group": CardGroupOut }
+```
 
 **Catalog shape** (`GET /api/catalog`):
 ```json
@@ -359,8 +411,11 @@ Deleting a card that is used in one of your decks returns `409`, with the list o
 - origins: system origins first, then the user's own, each by name
 - cards: newest first, filtered by `origin_id`, `kind`, `group_id` or `ungrouped=true` (both group filters at once gives 422)
 - card groups: by name
+- decks: newest first. The cards inside a deck (and in a share preview) are ordered by mana cost, then name.
 
 **PATCH** changes only the fields that are sent. Null clears an optional field (`hp`, `dmg`, `group_id`, `art_key`, `background_art_key`) and is rejected for a required one. A card PATCH re-checks the whole merged card, so turning a creature into a spell also needs `hp: null`.
+- A deck PATCH with `cards: [{card_id, count}]` replaces the whole list, the way the builder saves.
+- The merged deck is re-checked as a whole, so changing `origin_id` while cards of the old origin remain gives `card_origin_mismatch`. Send the new origin and the new card list together.
 
 **Errors** can carry extra fields next to `code` and `message` (`AppError(extra=...)`).
 
@@ -368,15 +423,20 @@ Content errors:
 
 | Status | `code` | When |
 |---|---|---|
-| 404 | `origin_not_found` / `card_not_found` / `group_not_found` | missing, or owned by another user (the same answer, so ids can't be probed) |
+| 404 | `origin_not_found` / `card_not_found` / `group_not_found` / `deck_not_found` | missing, or owned by another user (the same answer, so ids can't be probed) |
+| 404 | `share_not_found` | an unknown share code, or one that was revoked or whose deck or group was deleted |
 | 403 | `system_origin_read_only` | PATCH or DELETE on a system origin |
-| 409 | `origin_in_use` | deleting an origin that cards use; the body has `cards: [{id, name}]` |
+| 409 | `origin_in_use` | deleting an origin that cards or decks use; the body has `cards` and `decks`, each `[{id, name}]` |
+| 409 | `card_in_use` | deleting a card that a deck holds, or changing its origin so that it no longer fits one; the body has `decks: [{id, name}]` |
 | 409 | `group_name_taken` | a group name the user already has, ignoring case (including the unique-index race) |
 | 422 | `unknown_module` / `invalid_params` | a module key not registered for that kind, or params its `Params` model rejects |
 | 422 | `invalid_field_effects` | the same field effect twice on an origin |
 | 422 | `invalid_stats` | hp/dmg don't fit the kind: a creature without hp or dmg, a spell with hp, or a spell dmg that doesn't match the effect's `dmg_use` |
 | 422 | `invalid_abilities` | a repeated ability, or a spell without exactly one effect |
-| 422 | `invalid_origin` / `invalid_group` | the card's origin isn't the user's own or a system origin, or the group isn't the user's |
+| 422 | `invalid_origin` / `invalid_group` | the card's or deck's origin isn't the user's own or a system origin, or the group isn't the user's |
+| 422 | `invalid_deck_cards` | a deck lists a card that isn't the user's (or doesn't exist), or the same card twice |
+| 422 | `card_origin_mismatch` | deck cards that are neither of the deck's origin nor neutral; the body has `cards: [{id, name}]` |
+| 422 | `deck_too_large` | more than 60 cards in total (a copy count outside 1–4 gets FastAPI's default 422) |
 | 422 | `unsupported_art_type` / `art_too_large` | upload request with a type other than png/jpeg/webp, or over `UPLOAD_MAX_BYTES` (nothing is signed) |
 | 422 | `invalid_art_key` | a saved art key that isn't under `{card-art\|origin-art}/{user_id}/`, wasn't uploaded, or whose object is too large or of the wrong type (checked with `HEAD`, only when the key changes) |
 
@@ -439,7 +499,7 @@ Connect with `WS /ws/rooms/{code}?token=<access token>`. Every message has the f
 | M0 | Infra: settings, DB session, Alembic, nginx conf, `/api/health` | `docker compose up` works, and the health check through nginx returns 200 (Postgres, Redis and R2 reachable) |
 | M1 | Auth | register, login, refresh and `me` work; protected routes return 401 without a token |
 | M2 | Module registry, catalog, origins, cards, card groups, art upload | origins, cards and card groups CRUD work; system origins are seeded; `catalog` lists the modules (including field effects) with their JSON Schemas; images upload to R2 through a presigned URL and are visible at the bucket's public URL |
-| M3 | Decks, share and import (decks and card groups) | deck rules are checked; importing a deck or group share code creates a forked copy |
+| M3 | Decks, share and import (decks and card groups) | deck rules are checked; cards and origins in use are protected; a deck or group share code can be previewed, revoked and imported as a forked copy |
 | M4 | Rulesets, validation, share and import | `/validate` returns errors per field; the default ruleset is seeded |
 | M5 | Engine core | the full starter module set works; golden replay tests pass |
 | M6 | Rooms, WebSocket, Redis persistence, timers, reconnect | two WS clients can play a full game to a win |

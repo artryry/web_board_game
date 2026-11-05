@@ -6,10 +6,10 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db import Base
-from app.models.mixins import TimestampMixin
+from app.models.mixins import OwnedMixin, TimestampMixin
 
 
-class Card(TimestampMixin, Base):
+class Card(OwnedMixin, TimestampMixin, Base):
     __tablename__ = "cards"
     __table_args__ = (
         CheckConstraint("kind IN ('creature', 'spell')", name="kind"),
@@ -18,7 +18,6 @@ class Card(TimestampMixin, Base):
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     kind: Mapped[str] = mapped_column(String(16))
     name: Mapped[str] = mapped_column(String(40))
     # RESTRICT: the origin service answers with 409 origin_in_use before this is ever hit.

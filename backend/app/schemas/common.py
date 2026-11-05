@@ -7,8 +7,12 @@ from pydantic import BaseModel, Field, StringConstraints
 DEFAULT_PAGE_LIMIT = 50
 MAX_PAGE_LIMIT = 100
 
-# Display name of a user's content (origin, card, card group).
-ContentName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=40)]
+# Display name of a user's content (origin, card, card group, deck).
+CONTENT_NAME_MAX_LENGTH = 40
+ContentName = Annotated[
+    str,
+    StringConstraints(strip_whitespace=True, min_length=1, max_length=CONTENT_NAME_MAX_LENGTH),
+]
 ArtKey = Annotated[str, Field(min_length=1, max_length=255)]
 
 

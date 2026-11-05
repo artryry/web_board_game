@@ -20,5 +20,7 @@ class CardGroupOut(BaseModel):
     id: UUID
     name: str
     card_count: int
+    # Set while the group is shared; null after it is revoked.
+    share_code: str | None
     created_at: datetime
     updated_at: datetime

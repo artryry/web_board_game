@@ -18,6 +18,7 @@ async def test_create_and_list_groups(client: AsyncClient, alice: AuthedUser) ->
 
     assert beasts["name"] == "Beasts"
     assert beasts["card_count"] == 0
+    assert beasts["share_code"] is None
     assert response.status_code == 200
     body = response.json()
     assert body["total"] == 2

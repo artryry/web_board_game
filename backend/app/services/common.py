@@ -1,29 +1,39 @@
 from collections.abc import Sequence
-from typing import Any, Protocol
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.interfaces import ORMOption
 
 from app.core.errors import AppError
 from app.engine.registry import Module, ModuleError, ModuleParams, ModuleRef, registry
+from app.models.mixins import OwnedMixin
 from app.schemas.common import PageParams
 
 
-class Owned(Protocol):
-    @property
-    def owner_id(self) -> UUID | None: ...
-
-
-async def get_owned[M: Owned](
-    db: AsyncSession, model: type[M], row_id: UUID, owner_id: UUID, code: str, message: str
+async def get_owned[M: OwnedMixin](
+    db: AsyncSession,
+    model: type[M],
+    row_id: UUID,
+    owner_id: UUID,
+    code: str,
+    message: str,
+    options: Sequence[ORMOption] = (),
 ) -> M:
     """The row if `owner_id` owns it. Another user's row gives the same 404 as a missing one,
-    so a request can't tell whether an id exists."""
-    row = await db.get(model, row_id)
+    so a request can't tell whether an id exists. `options` are loader options, such as
+    `selectinload`."""
+    row = await db.get(model, row_id, options=options)
     if row is None or row.owner_id != owner_id:
         raise AppError(404, code, message)
     return row
+
+
+async def id_name_list(db: AsyncSession, stmt: Select[UUID, str]) -> list[dict[str, str]]:
+    """`[{id, name}]` for an error body, for example the decks that still hold a card."""
+    rows = await db.execute(stmt)
+    return [{"id": str(row_id), "name": name} for row_id, name in rows]
 
 
 async def paginate[M](db: AsyncSession, stmt: Select[M], page: PageParams) -> tuple[list[M], int]:

@@ -5,7 +5,8 @@ from fastapi import APIRouter, status
 from app.core.deps import CurrentUser, Db, Pagination
 from app.schemas.card_group import CardGroupCreate, CardGroupOut, CardGroupUpdate
 from app.schemas.common import Page
-from app.services import card_group_service
+from app.schemas.share import ShareCodeOut
+from app.services import card_group_service, share_service
 
 router = APIRouter(prefix="/card-groups", tags=["card groups"])
 
@@ -41,3 +42,13 @@ async def rename_group(
 @router.delete("/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_group(group_id: UUID, user: CurrentUser, db: Db) -> None:
     await card_group_service.delete_group(db, user.id, group_id)
+
+
+@router.post("/{group_id}/share", response_model=ShareCodeOut)
+async def share_group(group_id: UUID, user: CurrentUser, db: Db) -> ShareCodeOut:
+    return ShareCodeOut(share_code=await share_service.share_group(db, user.id, group_id))
+
+
+@router.delete("/{group_id}/share", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_group_share(group_id: UUID, user: CurrentUser, db: Db) -> None:
+    await share_service.revoke_group(db, user.id, group_id)

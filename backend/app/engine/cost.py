@@ -24,9 +24,10 @@ def card_points(
 
 
 def suggest_mana_cost(points: int) -> int:
+    """No upper cap: a suggestion above MAX_MANA_COST tells the author the card is stronger than
+    any legal cost, so it is labelled `under` even at 10. The card's own cost stays 0-10."""
     # ceil((points - 1) / 2) in integer maths, so there are no float rounding surprises.
     suggested = -(-(points - 1) // 2)
-    # return real mana cost even if it's over the top cap
     return max(MIN_MANA_COST, suggested)
 
 

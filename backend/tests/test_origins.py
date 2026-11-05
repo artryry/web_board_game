@@ -10,6 +10,7 @@ from tests.helpers import (
     AuthedUser,
     assert_error,
     create_card,
+    create_deck,
     create_origin,
     system_origin_id,
 )
@@ -151,6 +152,21 @@ async def test_delete_origin_in_use_lists_the_cards(client: AsyncClient, alice: 
         {"id": bear["id"], "name": "Bear"},
         {"id": wolf["id"], "name": "Wolf"},
     ]
+    assert detail["decks"] == []
+
+
+async def test_delete_origin_used_by_a_deck_lists_the_deck(
+    client: AsyncClient, alice: AuthedUser
+) -> None:
+    origin = await create_origin(client, alice)
+    wolf = await create_card(client, alice)  # neutral, so only the deck uses the origin
+    deck = await create_deck(client, alice, [(wolf, 2)], name="Bog", origin_id=origin["id"])
+
+    response = await client.delete(f"/api/origins/{origin['id']}", headers=alice.headers)
+
+    detail = assert_error(response, 409, "origin_in_use")
+    assert detail["cards"] == []
+    assert detail["decks"] == [{"id": deck["id"], "name": "Bog"}]
 
 
 # --- validation ---

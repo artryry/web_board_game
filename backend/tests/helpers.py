@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from botocore.exceptions import ClientError
 from httpx import AsyncClient, Response
@@ -86,6 +86,13 @@ class FakeS3:
         return self.objects[Key]
 
 
+def uploaded_art(fake_s3: FakeS3, kind: str, user: AuthedUser) -> str:
+    """An art key that `user` uploaded (`kind` is `card-art` or `origin-art`)."""
+    key = f"{kind}/{user.id}/{uuid4()}.png"
+    fake_s3.put(key, size=1000, content_type="image/png")
+    return key
+
+
 async def system_origin_id(client: AsyncClient, user: AuthedUser, key: str = "neutral") -> str:
     response = await client.get("/api/origins", headers=user.headers)
     assert response.status_code == 200
@@ -117,3 +124,27 @@ async def create_group(client: AsyncClient, user: AuthedUser, name: str) -> dict
     assert response.status_code == 201, response.text
     result: dict[str, Any] = response.json()
     return result
+
+
+async def create_deck(
+    client: AsyncClient, user: AuthedUser, cards: list[tuple[dict[str, Any], int]], **fields: Any
+) -> dict[str, Any]:
+    """A deck of `(card, count)` pairs, on the neutral origin unless `fields` say otherwise."""
+    if "origin_id" not in fields:
+        fields["origin_id"] = await system_origin_id(client, user)
+    body = {
+        "name": "Pack",
+        "cards": [{"card_id": card["id"], "count": count} for card, count in cards],
+    } | fields
+    response = await client.post("/api/decks", json=body, headers=user.headers)
+    assert response.status_code == 201, response.text
+    result: dict[str, Any] = response.json()
+    return result
+
+
+async def share(client: AsyncClient, user: AuthedUser, path: str) -> str:
+    """Shares the deck or group at `path` (for example `/api/decks/<id>`) and returns the code."""
+    response = await client.post(f"{path}/share", headers=user.headers)
+    assert response.status_code == 200, response.text
+    code: str = response.json()["share_code"]
+    return code

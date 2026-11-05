@@ -22,7 +22,7 @@ def test_cost_case(case: dict[str, Any]) -> None:
 
 
 @pytest.mark.parametrize(
-    ("points", "expected"), [(-5, 0), (0, 0), (1, 0), (2, 1), (21, 10), (50, 10)]
+    ("points", "expected"), [(-5, 0), (0, 0), (1, 0), (2, 1), (21, 10), (22, 11), (50, 25)]
 )
-def test_suggestion_is_clamped(points: int, expected: int) -> None:
+def test_suggestion_has_a_floor_but_no_cap(points: int, expected: int) -> None:
     assert suggest_mana_cost(points) == expected

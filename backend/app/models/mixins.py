@@ -1,8 +1,15 @@
+import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, func
+from sqlalchemy import DateTime, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column
+
+
+class OwnedMixin:
+    """A row that belongs to one user and goes when the user does."""
+
+    owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
 
 
 class TimestampMixin:

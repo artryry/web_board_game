@@ -30,9 +30,9 @@
     "points": 4, "suggested": 2, "balance": "over"
   },
   {
-    "case": "huge creature is clamped to 10",
+    "case": "huge creature isn't capped at 10, so it is under-costed at the maximum cost",
     "kind": "creature", "hp": 99, "dmg": 99, "ability_costs": [], "mana_cost": 10,
-    "points": 198, "suggested": 10, "balance": "balanced"
+    "points": 198, "suggested": 99, "balance": "under"
   },
   {
     "case": "damage spell",

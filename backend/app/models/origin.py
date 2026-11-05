@@ -8,6 +8,9 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.db import Base
 from app.models.mixins import TimestampMixin
 
+# The system origin whose cards fit into any deck.
+NEUTRAL_KEY = "neutral"
+
 
 class Origin(TimestampMixin, Base):
     """A field type. System origins (`owner_id` NULL) are seeded templates readable by everyone."""

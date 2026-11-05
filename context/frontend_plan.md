@@ -117,7 +117,7 @@ frontend/
   - art upload
 - **Cost suggestion (never enforced):**
   - `CostSuggestion` works out `suggested_mana_cost` live from the stats and the catalog's ability costs. Each feature and spell has `cost: {base, per_param}`, so an ability costs `base + Σ weight × params[name]`. It uses the same formula as backend §7.8, kept in one small shared function. Its unit tests run `backend/tests/fixtures/cost_cases.json`, the same cases the backend runs.
-  - A **Use suggested** button copies the suggestion into the mana field.
+  - A **Use suggested** button copies the suggestion into the mana field. The suggestion has no upper cap (backend §7.8), so above 10 the button fills in 10, and the hint says the card is stronger than any legal cost.
   - The editor shows no balance label. That label appears only in the card library (§3).
   - The mana field stays fully editable, and **Save is never disabled because of the formula**. Only hard bounds (for example mana 0–10) are checked.
 - **Live preview:** `CardPreview` shows the card exactly as it looks on the board.
@@ -126,10 +126,22 @@ frontend/
 ### 4.2 Deck builder
 - Two columns: the library on the left (filtered to the deck's origin plus neutral cards) and the deck list on the right, with copy counts.
 - Add cards by clicking or by dragging into the deck.
-- The deck origin is chosen once. Changing it warns that cards from the old origin will be removed.
+- The deck origin is chosen once. Changing it warns that cards from the old origin will be removed. The save sends the new `origin_id` and the trimmed `cards` together, since the server rejects an origin change while old cards remain (`card_origin_mismatch`).
+- Save sends the whole card list (`PATCH /api/decks/{id}` with `cards: [{card_id, count}]`). The server checks only the hard bounds: 1–4 copies, at most 60 cards, and the deck's origin or neutral.
 - A validity panel checks the deck against a chosen ruleset's `deck` rules (size, maximum copies, neutral cards allowed).
 - A small mana-curve chart, built from the users' own costs.
-- Share: `POST /api/decks/{id}/share` → show the code and a link to `/share/:code`, with a copy button.
+- **Share dialog** (decks and card groups use the same one):
+  - `POST /api/decks/{id}/share` (or `/api/card-groups/{id}/share`) returns `{share_code}`. Calling it again returns the same code.
+  - The dialog shows the code and a link to `/share/:code`, with a copy button.
+  - The deck and group responses carry `share_code` (null when the item isn't shared), so the dialog can show an existing code and offer **Revoke** (`DELETE .../share`). After a revoke, sharing again gives a new code.
+- Deleting a card that a deck holds, or moving it to an origin that doesn't fit, shows the server's `409 card_in_use` list of decks.
+
+### 4.2a Import page (`/share/:code`)
+- `GET /api/share/{code}` gives the preview, switching on `kind`:
+  - `deck`: the name, the author, its origin, and the cards with counts
+  - `card_group`: the name, the author, the origins its cards use, and the cards
+- `share_not_found` shows "This link doesn't work any more".
+- **Import to my library** sends `POST /api/share/{code}/import`. On `kind: "deck"` it goes to `/decks/:id`, and on `kind: "card_group"` it goes to `/cards`, filtered to the new group. A deck's cards land in a new group named after the deck.
 
 ### 4.3 Rules editor
 - **Board / deck / mana / hand settings:** a plain form for the fixed settings:
