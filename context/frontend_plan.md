@@ -20,18 +20,25 @@ The frontend for the card-game constructor described in [project_description.md]
 
 | Concern | Choice |
 |---|---|
-| Build | Vite, TypeScript (strict) |
-| Routing | React Router |
-| Server data | TanStack Query |
-| Live game state | Zustand |
-| Drag-and-drop | dnd-kit (`@dnd-kit/core`, `@dnd-kit/sortable`) |
-| Animation | Framer Motion |
-| Styling | Tailwind CSS |
+| Build | Vite 8, React 19, TypeScript 5.9 (`strict`, `noUncheckedIndexedAccess`, the `@/` alias for `src/`) |
+| Routing | React Router 8 in data mode: `createBrowserRouter`, with `RouterProvider` from `react-router/dom` (not framework mode) |
+| Server data | TanStack Query 5. Client errors (4xx) are never retried. |
+| Live game state | Zustand (added in F4/F5, when the game store lands) |
+| Drag-and-drop | dnd-kit (`@dnd-kit/core`, `@dnd-kit/sortable`), added in F2 |
+| Animation | Framer Motion, added in F5 |
+| Styling | Tailwind CSS 4. The design tokens live in CSS, in the `@theme` block of `src/styles/index.css` (no `tailwind.config.js`). |
 | Forms | React Hook Form + a small home-made `SchemaForm` for module params (it supports int, number with min/max, enum, bool and arrays of enums; an array with `uniqueItems` renders as checkboxes). The backend guarantees every catalog schema is inline (no `$ref`) and uses only these types. Labels come from each property's `title`. This is lighter than rjsf. |
-| API types | `openapi-typescript`, generated from FastAPI's `/openapi.json` (`npm run gen:api`) |
-| Tests | Vitest + React Testing Library; Playwright for end-to-end tests |
+| API client | `openapi-fetch`, typed by the generated `paths`, with our own `fetch` that adds the bearer token and handles refresh (§6) |
+| API types | `openapi-typescript`, generated from `http://localhost/api/openapi.json` into the committed `src/api/schema.d.ts` (`npm run gen:api`) |
+| Tests | Vitest 5 + React Testing Library + jsdom, with MSW 3 mocking the API; Playwright (Chromium) for end-to-end tests through nginx |
+| Lint, format | ESLint 10 flat config (`typescript-eslint` strict type-checked, `react-hooks`, `react-refresh`, `jsx-a11y`), Prettier with width 100 and the Tailwind class sorter |
 
-In development the app runs on `localhost:5173` and is reached through nginx at `http://localhost/`, so `/api` and `/ws` are on the same origin and need no CORS setup. Card art is loaded from the Cloudflare R2 public URL, which is a different origin.
+**Versions** are pinned exactly (`.npmrc` has `save-exact=true`), and `package-lock.json` is committed. Node 24 (`engines`, `.nvmrc`). They are the newest releases that fit together (checked 2026-11-06):
+- TypeScript stays on 5.9: `typescript-eslint` needs `<6.1` and `openapi-typescript` needs `^5`, so TypeScript 7 has to wait.
+- `eslint-plugin-jsx-a11y` 6.10.2 still declares ESLint ≤9, but it only uses rule APIs that ESLint 10 kept, so `package.json` has one `overrides` entry that lets it use our ESLint 10.
+- jsdom stays on 29: 30+ needs Node ≥24.15.
+
+In development the app runs on `localhost:5173` and is reached through nginx at `http://localhost/`, so `/api` and `/ws` are on the same origin and need no CORS setup. Vite listens on every interface (`host: true`), because nginx in Docker can't reach a loopback-only server, and its hot-reload socket goes through nginx on port 80. `VITE_API_ORIGIN` can point the client at another API origin; it is empty by default (the page's own). The refresh cookie (§6) is only sent to the page's own origin, so another API origin would also need CORS with credentials. Card art is loaded from the Cloudflare R2 public URL, which is a different origin.
 
 ## 2. Project layout
 
@@ -39,14 +46,23 @@ In development the app runs on `localhost:5173` and is reached through nginx at 
 frontend/
   src/
     main.tsx, App.tsx, routes.tsx
+    AppShell.tsx         header (app name, nav, username, Log out) around the logged-in pages
+    NotFoundPage.tsx
     api/
-      client.ts          fetch wrapper: base URL, JWT header, refresh on 401
+      client.ts          openapi-fetch client: bearer header, one shared refresh on token_expired
+      errors.ts          ApiError (code, message, extra, fieldErrors) and unwrap()
+      queryClient.ts     QueryClient defaults (no retries on 4xx)
       schema.d.ts        generated OpenAPI types
-      hooks/             useOrigins, useCards, useDecks, useRulesets, useRooms, useGames, useShare ...
+      hooks/             useLibraryCounts, useOrigins, useCards, useDecks, useRulesets, useRooms, useShare ...
     auth/
-      AuthProvider.tsx   tokens in memory + refresh token in localStorage
-      ProtectedRoute.tsx
-      LoginPage.tsx, RegisterPage.tsx
+      tokens.ts          access token in memory, the session hint in localStorage, cross-tab logout
+      AuthContext.ts     auth state and context types
+      AuthProvider.tsx   restores the session on start; login, register, logout
+      useAuth.ts         useAuth, useCurrentUser
+      ProtectedRoute.tsx, GuestRoute.tsx, redirect.ts (the remembered return page)
+      LoginPage.tsx, RegisterPage.tsx, AuthLayout.tsx
+      bounds.ts          input limits copied from the backend's auth schemas
+      showServerError.ts maps API error codes onto form fields
     catalog/
       useCatalog.ts      cached GET /api/catalog
       SchemaForm.tsx     renders a params form from a JSON Schema
@@ -68,9 +84,10 @@ frontend/
       socket.ts          RoomSocket: connect, reconnect with backoff, seq, resync
       gameStore.ts       Zustand store for room and game state
       eventQueue.ts      plays server events one after another as animations
-    ui/                  Button, Modal, Toast, Tabs, CardFrame, HpBar, Spinner
-    styles/
-  e2e/                   Playwright specs
+    ui/                  Button, TextField, Modal, Toast, Tabs, CardFrame, HpBar, Spinner
+    styles/              index.css: Tailwind and the @theme design tokens
+    test/                Vitest setup, MSW fake API (handlers, server), renderApp helper
+  e2e/                   Playwright specs (and global-setup.ts, which checks /api/health)
 ```
 
 ## 3. Pages and routes
@@ -201,7 +218,17 @@ frontend/
 3. The following `game_state` replaces the local view after the queued animations finish (or right away if animations are turned off).
 4. On `error`, the pending card snaps back and a toast shows the reason (for example "Not enough mana").
 
-## 6. WebSocket client and state
+## 6. Session, WebSocket client and state
+
+**Session and token refresh** (F0):
+- The access token (15 min) lives only in memory. The refresh token (30 days) is an **HttpOnly cookie** (`refresh_token`, `SameSite=Strict`, path `/api/auth`; see backend_plan §8). The browser keeps it, shares it between tabs and sends it to `/api/auth` itself, and no script can read it, so an XSS can't steal it.
+- `localStorage` holds only a non-secret hint, `cardtable.session`, set while a session exists. On start, the hint sends the app to `POST /api/auth/refresh`, then `GET /api/auth/me`, behind a full-page spinner. Without the hint the app starts logged out without a request.
+- `api/client.ts` adds `Authorization: Bearer` to every request except login, register, refresh and logout.
+  - On a 401 with `token_expired` it refreshes once and retries the request. Parallel requests share that one refresh. A request whose token was already replaced retries without another refresh.
+  - Any other 401 (or a failed refresh) ends the session. Every refresh stores the new access token (the answer renews the cookie too).
+  - A refresh answer that arrives after a logout is dropped, so it can't log the user back in. Its answer has set a new cookie, so the client deletes that again.
+- **Logout** forgets the access token and the hint and clears the query cache, then calls `POST /api/auth/logout`, because only the server can delete an HttpOnly cookie. Removing the hint fires a `storage` event, which logs out the app's other tabs. The backend keeps refresh tokens stateless; revocation is a later backend task that needs no UI change.
+- Every way a session ends lands in one place (`onSessionEnd`). An intended logout (in this tab or another) sends the user to `/login` without a return page. An expired session or a deep link remembers the page, and the login goes back there.
 
 - `RoomSocket` (`ws/socket.ts`):
   - connects to `/ws/rooms/{code}?token=…`

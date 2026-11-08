@@ -18,13 +18,11 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=_PASSWORD_MAX_LENGTH)
 
 
-class RefreshRequest(BaseModel):
-    refresh: str
+class AccessToken(BaseModel):
+    """The body of login, register and refresh. The refresh token goes in an HttpOnly cookie
+    instead, out of reach of the page's scripts."""
 
-
-class TokenPair(BaseModel):
     access: str
-    refresh: str
 
 
 class UserOut(BaseModel):

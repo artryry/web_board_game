@@ -3,10 +3,10 @@ from uuid import UUID
 
 from fastapi import APIRouter, Query, status
 
-from app.core.deps import S3, AppSettings, CurrentUser, Db, Pagination
+from app.core.deps import S3, AppSettings, CurrentUser, Db
 from app.schemas.card import (
     CardCreate,
-    CardFilters,
+    CardListQuery,
     CardOut,
     CardUpdate,
     SuggestCostRequest,
@@ -20,13 +20,12 @@ router = APIRouter(prefix="/cards", tags=["cards"])
 
 @router.get("", response_model=Page[CardOut])
 async def list_cards(
-    filters: Annotated[CardFilters, Query()],
+    query: Annotated[CardListQuery, Query()],
     user: CurrentUser,
     db: Db,
     settings: AppSettings,
-    page: Pagination,
 ) -> Page[CardOut]:
-    cards, total = await card_service.list_cards(db, user.id, filters, page)
+    cards, total = await card_service.list_cards(db, user.id, query, query.page())
     return Page[CardOut](
         items=[card_service.card_out(card, settings) for card in cards], total=total
     )

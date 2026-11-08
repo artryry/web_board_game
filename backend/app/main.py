@@ -33,7 +33,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="Card Table API", lifespan=lifespan)
+    # The schema and docs live under /api so nginx proxies them like every other request.
+    app = FastAPI(
+        title="Card Table API",
+        lifespan=lifespan,
+        openapi_url="/api/openapi.json",
+        docs_url="/api/docs",
+        redoc_url=None,
+    )
     register_error_handlers(app)
     app.include_router(api_router)
     return app

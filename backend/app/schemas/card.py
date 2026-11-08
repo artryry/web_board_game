@@ -6,7 +6,14 @@ from pydantic import BaseModel, Field, model_validator
 
 from app.engine.cost import MAX_MANA_COST, MIN_MANA_COST, Balance, CardKind
 from app.engine.registry import ModuleRef
-from app.schemas.common import ArtKey, ContentName, reject_explicit_nulls
+from app.schemas.common import (
+    DEFAULT_PAGE_LIMIT,
+    MAX_PAGE_LIMIT,
+    ArtKey,
+    ContentName,
+    PageParams,
+    reject_explicit_nulls,
+)
 
 # A creature has 0-2 features; a spell has exactly one spell effect (checked by the service).
 MAX_ABILITIES = 2
@@ -84,6 +91,21 @@ class CardFilters(BaseModel):
         if self.group_id is not None and self.ungrouped:
             raise ValueError("Use either 'group_id' or 'ungrouped', not both")
         return self
+
+
+class CardListQuery(CardFilters):
+    """The whole query of `GET /api/cards`: the filters plus paging.
+
+    FastAPI lists a query model's fields as separate parameters in OpenAPI only when the model is
+    the route's only query parameter. With the shared `Pagination` dependency next to it, the
+    schema showed one required `filters` object, so the generated client types were wrong.
+    """
+
+    limit: int = Field(default=DEFAULT_PAGE_LIMIT, ge=1, le=MAX_PAGE_LIMIT)
+    offset: int = Field(default=0, ge=0)
+
+    def page(self) -> PageParams:
+        return PageParams(limit=self.limit, offset=self.offset)
 
 
 class SuggestCostRequest(BaseModel):

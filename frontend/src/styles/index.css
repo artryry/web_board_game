@@ -1,0 +1,42 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens: a dark game table. Only these colours exist, so components can't drift into
+ * one-off values. Danger and success use Okabe–Ito hues (colour-blind safe, like the origin
+ * palette), lightened until small text reaches 4.5:1 on every surface.
+ */
+@theme {
+  --color-*: initial;
+  --color-bg: #121417;
+  --color-surface: #1b1e23;
+  --color-surface-raised: #252a30;
+  --color-border: #3a414a;
+  --color-border-strong: #6b7480;
+  --color-text: #ece8e1;
+  --color-text-muted: #a6aeb8;
+  --color-accent: #e3b04b;
+  --color-danger: #f07a2a;
+  --color-success: #2bb88f;
+  --color-focus: #56b4e9;
+
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+
+  --font-sans: ui-sans-serif, system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply min-h-screen bg-bg font-sans text-text antialiased;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+}

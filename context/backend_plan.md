@@ -25,7 +25,7 @@ M0 (infrastructure) is done:
 
 M1 (auth) is done:
 - `users` table (UUID PK, case-insensitive unique username and email) with its Alembic migration. `Base.metadata` has a constraint naming convention.
-- `core/errors.py` (`AppError`, `UnauthorizedError` and handlers that give every error the `{"detail": {code, message}}` body), `core/security.py` (argon2 via pwdlib, PyJWT access and refresh tokens), `services/auth_service.py`, and `api/auth.py` with register, login, refresh and me.
+- `core/errors.py` (`AppError`, `UnauthorizedError` and handlers that give every error the `{"detail": {code, message}}` body), `core/security.py` (argon2 via pwdlib, PyJWT access and refresh tokens), `services/auth_service.py`, and `api/auth.py` with register, login, refresh and me. Since F0, the refresh token travels in an HttpOnly cookie, and `api/auth.py` also has logout (see §8).
 - `get_current_user` and the `CurrentUser` alias in `core/deps.py` protect any route.
 - `tests/conftest.py` runs API tests against `<POSTGRES_DB>_test`, with one rolled-back transaction per test.
 
@@ -341,11 +341,19 @@ balance             = 'under' | 'balanced' | 'over'         # mana_cost vs the s
 
 ## 8. REST API
 
-All endpoints except register and login need `Authorization: Bearer <access token>`.
+All endpoints except register, login, refresh, logout and health need `Authorization: Bearer <access token>`.
+
+**The refresh token is an HttpOnly cookie**, so page scripts (and an XSS) can't read it:
+- Register, login and refresh return only `{access}` in the body, and set the cookie `refresh_token` with `HttpOnly`, `SameSite=Strict`, `Path=/api/auth`, `Max-Age` = `REFRESH_TOKEN_TTL_DAYS`, and `Secure` unless `REFRESH_COOKIE_SECURE=false`. Browsers accept Secure cookies on `http://localhost`.
+- `POST /api/auth/refresh` reads only the cookie and sets a new one. Without the cookie it answers 401 `not_authenticated`.
+- `POST /api/auth/logout` (204, no access token needed) deletes the cookie. Tokens stay stateless, so it doesn't revoke anything: a token copied earlier stays valid until it expires.
+- `SameSite=Strict` keeps other sites from refreshing or logging out with the cookie, so these routes need no CSRF token. The cookie needs the app and `/api` on one origin, as nginx serves them.
+
+The OpenAPI schema is at `/api/openapi.json` and the Swagger UI at `/api/docs` (ReDoc is off), so nginx serves them like any other `/api` request. The frontend generates its types from that schema, so every query parameter must appear in it as a plain parameter. FastAPI lists a query model's fields one by one only when the model is the route's only query parameter, so `GET /api/cards` takes one `CardListQuery` (its filters plus `limit`/`offset`) instead of using the shared `Pagination` next to it. `tests/test_openapi.py` checks that no query parameter is an object.
 
 | Area | Endpoints |
 |---|---|
-| Auth | `POST /api/auth/register`, `POST /api/auth/login` → `{access, refresh}`, `POST /api/auth/refresh`, `GET /api/auth/me` |
+| Auth | `POST /api/auth/register`, `POST /api/auth/login` → `{access}` plus the refresh cookie, `POST /api/auth/refresh` (cookie in, `{access}` and a new cookie out), `POST /api/auth/logout` (204, deletes the cookie), `GET /api/auth/me` |
 | Catalog | `GET /api/catalog` |
 | Origins | `GET /api/origins` (mine plus system origins), `POST /api/origins`, `GET/PATCH/DELETE /api/origins/{id}` (system origins are read-only), `POST /api/uploads/origin-art` (background image) |
 | Cards | `GET /api/cards` (mine; filters: origin_id, kind, group or ungrouped), `POST /api/cards`, `GET/PATCH/DELETE /api/cards/{id}`, `POST /api/cards/suggest-cost` |
@@ -364,7 +372,7 @@ Auth errors (every `401` carries `WWW-Authenticate: Bearer`):
 |---|---|---|
 | 409 | `username_taken` / `email_taken` | duplicate on register, including the DB unique-violation race |
 | 401 | `invalid_credentials` | wrong email or password (same body for both) |
-| 401 | `not_authenticated` | no `Authorization: Bearer` header |
+| 401 | `not_authenticated` | no `Authorization: Bearer` header, or no refresh cookie on `/refresh` |
 | 401 | `token_expired` | valid signature, `exp` in the past (the client should refresh) |
 | 401 | `token_invalid` | malformed, bad signature, missing claims, or the user no longer exists |
 | 401 | `token_wrong_type` | a refresh token used as access, or the other way round |

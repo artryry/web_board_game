@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     jwt_algorithm: Literal["HS256", "HS384", "HS512"] = "HS256"
     access_token_ttl_min: int = Field(default=15, ge=1)
     refresh_token_ttl_days: int = Field(default=30, ge=1)
+    # The refresh token travels in an HttpOnly cookie. Browsers accept Secure cookies on
+    # http://localhost, so this stays on in development. Turn it off only to open the app over
+    # plain HTTP on another host (for example a LAN IP).
+    refresh_cookie_secure: bool = True
 
     health_check_timeout_s: float = 2.0
 

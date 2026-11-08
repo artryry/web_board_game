@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import dataclass
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -16,7 +17,16 @@ from app.core.security import (
     verify_password,
 )
 from app.models.user import User
-from app.schemas.auth import LoginRequest, RegisterRequest, TokenPair
+from app.schemas.auth import LoginRequest, RegisterRequest
+
+
+@dataclass(frozen=True)
+class TokenPair:
+    """Both tokens of a session. The router splits them: the access token goes in the body and
+    the refresh token in its cookie."""
+
+    access: str
+    refresh: str
 
 
 def _normalize_email(email: str) -> str:

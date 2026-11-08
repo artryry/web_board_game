@@ -27,6 +27,20 @@ docker compose up -d                                   # Postgres, Redis, nginx
 cd backend; .\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 alembic upgrade head                                   # apply migrations
-uvicorn app.main:app --reload --port 8000              # API
+uvicorn app.main:app --reload --port 8000              # API (docs: http://localhost/api/docs)
 pytest; ruff check .; ruff format --check .; mypy app tests   # checks
 ```
+
+Frontend (Node 24), with the stack and the API running:
+
+```powershell
+cd frontend
+npm install
+npx playwright install chromium                        # once, for the e2e tests
+npm run dev                                            # Vite on 5173; open http://localhost/
+npm run gen:api                                        # regenerate src/api/schema.d.ts after API changes
+npm run lint; npm run format:check; npm run typecheck; npm test   # checks
+npm run e2e                                            # Playwright through nginx
+```
+
+The e2e tests leave their `e2e_…` users in the dev DB. Remove them with `DELETE FROM users WHERE username LIKE 'e2e\_%';` (deleting a user cascades to all their content).

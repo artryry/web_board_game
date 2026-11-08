@@ -26,6 +26,7 @@ def make_settings() -> Settings:
         jwt_algorithm="HS256",
         access_token_ttl_min=15,
         refresh_token_ttl_days=30,
+        refresh_cookie_secure=True,
         upload_max_bytes=2 * 1024 * 1024,
         upload_url_ttl_s=300,
     )

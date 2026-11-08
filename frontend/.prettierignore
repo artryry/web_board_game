@@ -1,0 +1,6 @@
+dist
+playwright-report
+test-results
+.vitest
+package-lock.json
+src/api/schema.d.ts
