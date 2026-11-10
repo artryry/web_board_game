@@ -511,7 +511,7 @@ Connect with `WS /ws/rooms/{code}?token=<access token>`. Every message has the f
 
 ### 10.1 Deployment
 
-Agreed 2026-11-10. Railway, Render Starter and a Hetzner VPS were considered and set aside, to keep hosting at $0 for now.
+Agreed 2026-11-10. Railway, Render Starter and a Hetzner VPS were considered and set aside, to keep hosting at $0 for now. The operational side (the pipeline, env vars, rollbacks, troubleshooting) is in [deployment.md](deployment.md).
 
 | Piece | Service | Notes |
 |---|---|---|

@@ -1,7 +1,7 @@
 # Current feature: Deployment — Render + Neon + Upstash + R2, with CI
 
-**Status:** code done (2026-11-10) on branch `ci-cd-prepare`, not committed yet. The hosted services are still to be created by the user (see "Manual setup"), then the first deploy follows.
-**Plan reference:** [backend_plan.md §10.1](backend_plan.md), [frontend_plan.md §1](frontend_plan.md) (production paragraph)
+**Status:** code done and on `master` (`a151cf7`, 2026-11-10); CI is green. The first Render deploy failed because `DATABASE_URL` in Render held the local `127.0.0.1` value; the fix is to paste Neon's connection string (see [deployment.md](deployment.md), Troubleshooting).
+**Plan reference:** [backend_plan.md §10.1](backend_plan.md), [frontend_plan.md §1](frontend_plan.md) (production paragraph). How-to: [deployment.md](deployment.md).
 **Previous feature:** F0 (frontend scaffold, auth pages and app shell), done and committed as `d78c24f`; see [sessions/session_2026-11-06.md](sessions/session_2026-11-06.md) and [session_2026-11-08.md](sessions/session_2026-11-08.md).
 **Next:** F1 (catalog and `SchemaForm`, origin and card editors, card library, art upload).
 
@@ -56,7 +56,7 @@ Collect 7 values for Render and keep them out of git (a password manager, or a l
   3. Manage API tokens → Object Read & Write on that bucket only → `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`
   4. `R2_ENDPOINT` = `https://<account_id>.r2.cloudflarestorage.com`
 - [ ] **Local smoke test:** `docker build -t card-table .`, then `docker run --rm -p 8080:8000 --env-file .env.prod card-table`. `http://localhost:8080/api/health` shows all `true`; register, log in, reload.
-- [ ] **GitHub:** merge `ci-cd-prepare` into `master`; CI is green. Optional: require the three checks on `master`.
+- [x] **GitHub:** merge `ci-cd-prepare` into `master`; CI is green (`a151cf7`). Optional: require the three checks on `master`.
 - [ ] **Render:** sign in with GitHub, give the Render app access to `artryry/web_board_game`, New → Blueprint → this repo, enter the 7 values. Check Settings → Auto-Deploy is "After CI checks pass".
 - [ ] **R2 CORS** on `card-art-prod`, with the Render URL:
   ```json
@@ -67,7 +67,7 @@ Collect 7 values for Render and keep them out of git (a password manager, or a l
 - Render free sleeps after 15 minutes without traffic; the next visitor waits up to about a minute. WebSocket messages count as traffic. Included bandwidth is small (reportedly ~5 GB a month since 2026); art doesn't count, since it comes from R2.
 - In-process room locks and turn timers (M6) are lost when the service sleeps or redeploys; room state in Redis survives. M6 must restore timers from the stored deadline, or the app moves to an always-on plan.
 - Neon free: the first query after ~5 idle minutes waits for the compute to wake; 0.5 GB storage.
-- Upstash free: ~500K commands a month, 256 MB.
+- Upstash free: ~500K commands a month, 256 MB. A free database is archived after at least 14 days without traffic, and until M6 only `/api/health` uses Redis (details in [deployment.md](deployment.md)).
 
 ## Carried over
 - **R2 CORS rule for development (manual, from M2):** the dev bucket must allow `PUT` and `GET` from `http://localhost` with the `Content-Type` header before F1's uploads work. The JSON is in [session_2026-11-01.md](sessions/session_2026-11-01.md) and backend_plan §10.

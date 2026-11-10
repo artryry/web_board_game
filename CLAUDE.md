@@ -17,6 +17,7 @@ A website where users build their own Hearthstone-like card game from ready-made
 | [context/coding-standards.md](context/coding-standards.md) | Code style, structure and conventions |
 | [context/backend_plan.md](context/backend_plan.md) | Backend design: data model, module registry, rules JSON, engine, API, WebSocket, milestones M0–M7 |
 | [context/frontend_plan.md](context/frontend_plan.md) | Frontend design: pages, builders, game board, WS client, milestones F0–F6 |
+| [context/deployment.md](context/deployment.md) | CI/CD and production: pipeline, services, env vars, rollbacks, free-tier limits, troubleshooting |
 | [context/project_description.md](context/project_description.md) | The original game idea and use cases |
 
 The plans are the source of truth for design decisions. If the code needs to go against a plan, update the plan in the same change.
@@ -48,7 +49,7 @@ The e2e tests leave their `e2e_…` users in the dev DB. Remove them with `DELET
 
 ## Deploy
 
-Merging to `master` deploys: CI (`.github/workflows/ci.yml`) runs, then Render builds the `Dockerfile` and starts it with `backend/scripts/start.sh` (migrations, then uvicorn). Production secrets live only in the Render dashboard. To try the production image locally, against the hosted services in a git-ignored `.env.prod`:
+Merging to `master` deploys: CI (`.github/workflows/ci.yml`) runs, then Render builds the `Dockerfile` and starts it with `backend/scripts/start.sh` (migrations, then uvicorn). Production secrets live only in the Render dashboard. Details, rollbacks and troubleshooting: [context/deployment.md](context/deployment.md). To try the production image locally, against the hosted services in a git-ignored `.env.prod`:
 
 ```powershell
 docker build -t card-table .
