@@ -26,6 +26,7 @@ The frontend for the card-game constructor described in [project_description.md]
 | Live game state | Zustand (added in F4/F5, when the game store lands) |
 | Drag-and-drop | dnd-kit (`@dnd-kit/core`, `@dnd-kit/sortable`), added in F2 |
 | Animation | Framer Motion, added in F5 |
+| Icons | `lucide-react`, added in F1. Each icon is imported by name, so the bundle holds only the ones used: the catalog's 16 origin icons (all Lucide names) and a few UI icons. |
 | Styling | Tailwind CSS 4. The design tokens live in CSS, in the `@theme` block of `src/styles/index.css` (no `tailwind.config.js`). |
 | Forms | React Hook Form + a small home-made `SchemaForm` for module params (it supports int, number with min/max, enum, bool and arrays of enums; an array with `uniqueItems` renders as checkboxes). The backend guarantees every catalog schema is inline (no `$ref`) and uses only these types. Labels come from each property's `title`. This is lighter than rjsf. |
 | API client | `openapi-fetch`, typed by the generated `paths`, with our own `fetch` that adds the bearer token and handles refresh (§6) |
@@ -52,10 +53,15 @@ frontend/
     NotFoundPage.tsx
     api/
       client.ts          openapi-fetch client: bearer header, one shared refresh on token_expired
-      errors.ts          ApiError (code, message, extra, fieldErrors) and unwrap()
+      errors.ts          ApiError (code, message, extra, fieldErrors), unwrap() and errorMessage()
       queryClient.ts     QueryClient defaults (no retries on 4xx)
       schema.d.ts        generated OpenAPI types
-      hooks/             useLibraryCounts, useOrigins, useCards, useDecks, useRulesets, useRooms, useShare ...
+      bounds.ts          content input limits copied from the backend schemas (names, stats, art)
+      showServerError.ts maps API error codes onto form fields, with a code → field map per form
+      inUse.ts           reads the [{id, name}] lists of a 409 (origin_in_use, card_in_use)
+      uploadArt.ts       art upload: the presign request, then the PUT to R2 (no bearer token)
+      hooks/             useLibraryCounts, useOrigins, useCards, useCardGroups, useArtUpload,
+                         fetchAllPages; later useDecks, useRulesets, useRooms, useShare ...
     auth/
       tokens.ts          access token in memory, the session hint in localStorage, cross-tab logout
       AuthContext.ts     auth state and context types
@@ -64,15 +70,25 @@ frontend/
       ProtectedRoute.tsx, GuestRoute.tsx, redirect.ts (the remembered return page)
       LoginPage.tsx, RegisterPage.tsx, AuthLayout.tsx
       bounds.ts          input limits copied from the backend's auth schemas
-      showServerError.ts maps API error codes onto form fields
     catalog/
-      useCatalog.ts      cached GET /api/catalog
-      SchemaForm.tsx     renders a params form from a JSON Schema
+      useCatalog.ts      cached GET /api/catalog (once per session) and findModule
+      schemaFields.ts    reads a params JSON Schema into typed fields, their defaults and "Title value"
+      SchemaForm.tsx     renders a params form from a JSON Schema, inside the editor's own form
+      EnumArrayParams.tsx  arrays of enums: checkboxes (uniqueItems) or a list of selects
+      ModuleListField.tsx  chosen modules (abilities, field effects): add, remove, limit, no repeats
+      useFieldError.ts, humanize.ts
     features/
       dashboard/         DashboardPage
-      origins/           OriginListPage, OriginEditorPage, OriginPreview (field tile + badge)
-      cards/             CardLibraryPage, CardGroupPanel, BalanceLabel, CardEditorPage, CardPreview,
-                         CostSuggestion, ArtUpload
+      origins/           OriginListPage, OriginListItem, DeleteOriginDialog, OriginEditorPage,
+                         OriginForm (the page and the card editor's modal), OriginLookFields,
+                         OriginPreview (section tile + effect badges), OriginBadge, OriginIcon,
+                         originLook (colour hex), originValues (form ↔ API)
+      cards/             CardLibraryPage, CardGroupPanel, GroupNameDialog, DeleteGroupDialog,
+                         LibraryFilters, LibraryCard, MoveToGroupDialog, BalanceLabel, libraryParams
+                         (the URL state), CardEditorPage, CardForm (KindField, StatFields,
+                         AbilitiesField, SpellEffectField, OriginField, NewOriginModal,
+                         DeleteCardDialog), CardPreview, CardView, CostSuggestion, cost (the
+                         formula), cardValues (the kind and dmg_use rules), ArtUpload, useArtField
       decks/             DeckListPage, DeckBuilderPage, ManaCurveChart, ShareDialog
       rules/             RulesListPage, RulesEditorPage, BoardSettingsForm,
                          PhasePipeline (sortable), ModulePalette, PhaseItem
@@ -86,9 +102,11 @@ frontend/
       socket.ts          RoomSocket: connect, reconnect with backoff, seq, resync
       gameStore.ts       Zustand store for room and game state
       eventQueue.ts      plays server events one after another as animations
-    ui/                  Button, TextField, Modal, Toast, Tabs, CardFrame, HpBar, Spinner
+    ui/                  Button, ButtonLink, TextField, SelectField, Modal, ConfirmDialog, ErrorAlert,
+                         InUseList, LoadingState, Spinner, CardFrame; later Toast, Tabs, HpBar
     styles/              index.css: Tailwind and the @theme design tokens
-    test/                Vitest setup, MSW fake API (handlers, server), renderApp helper
+    test/                Vitest setup, MSW fake API (auth handlers, content handlers over an in-memory
+                         store, a catalog fixture, a fake R2), renderApp and renderWithForm helpers
   e2e/                   Playwright specs (and global-setup.ts, which checks /api/health)
 ```
 
@@ -100,7 +118,7 @@ frontend/
 | `/` | Dashboard | My origins, cards, decks and rulesets (counts and most recent); **Create room**; **Join by code** |
 | `/origins` | Origin list | My origins plus system origins (read-only, marked "template", with a **Duplicate** button); new / edit / delete |
 | `/origins/new`, `/origins/:id` | Origin editor | See §4.0 |
-| `/cards` | Card library | Cards organised by **group** (folders, plus "Ungrouped"): create, rename and delete groups, and move cards between them. A grid with filters (origin, kind, cost). Each card shows its **balance label** (*under-costed / balanced / over-costed*) from the server, as information only. New / edit / delete. Share a group by code (F2). |
+| `/cards` | Card library | Cards organised by **group** (folders, plus "Ungrouped"): create, rename and delete groups, and move cards between them. A grid with filters (origin, kind). A cost filter waits for a backend filter on `GET /api/cards` (dropped from F1 on 2026-11-10). Each card shows its **balance label** (*under-costed / balanced / over-costed*) from the server, as information only. New / edit / delete. Share a group by code (F2). |
 | `/cards/new`, `/cards/:id` | Card editor | See §4.1 |
 | `/decks` | Deck list | Origin badge, size, validity check against the default ruleset; share button |
 | `/decks/:id` | Deck builder | See §4.2 |
@@ -121,7 +139,7 @@ frontend/
   - optional field background image, uploaded like card art (`POST /api/uploads/origin-art`)
   - **field effects**: up to 3, picked from the catalog's field-effect modules and set up with `SchemaForm` (for example `stat_bonus` +1 HP to own-origin creatures)
 - **Live preview:** `OriginPreview` shows a board section tile with this origin's background and effect badges, as it will look in a game.
-- You can start from a template by duplicating one of the system origins (forest, volcano, ocean, mountain).
+- You can start from a template by duplicating one of the system origins (forest, volcano, ocean, mountain). **Duplicate** opens `/origins/new?from=<id>` filled in from the source and named "<name> copy" (cut to 40 characters); nothing is created until Save. Own origins can be duplicated too, and keep their background. A system origin's own page is read-only.
 - Deleting an origin that is used by cards or decks shows the server's `409` list, so the user knows what to change first.
 
 ### 4.1 Card editor
@@ -129,7 +147,7 @@ frontend/
   - kind (creature / spell)
   - name
   - origin (my origins plus system origins, with a "+ New origin" shortcut that opens the origin editor in a modal)
-  - HP (creatures only) and DMG. For a spell, DMG follows the chosen effect's catalog `dmg_use`: positive for `damage`, negative for `heal`, and hidden for `none` (for example `draw_cards`).
+  - HP (creatures only) and DMG. For a spell, DMG follows the chosen effect's catalog `dmg_use`: a "Damage" field for `damage`, a "Heal" field for `heal` (typed as the amount and sent as a negative number, so a stored −3 shows as 3), and nothing for `none` (for example `draw_cards`), which sends `null`. Changing the kind clears the abilities, and a spell always sends `hp: null`.
   - **mana cost**
   - abilities (creatures, at most 2) or effect (spells), chosen from the catalog and set up with `SchemaForm`
   - group (optional)
@@ -140,7 +158,7 @@ frontend/
   - The editor shows no balance label. That label appears only in the card library (§3).
   - The mana field stays fully editable, and **Save is never disabled because of the formula**. Only hard bounds (for example mana 0–10) are checked.
 - **Live preview:** `CardPreview` shows the card exactly as it looks on the board.
-- **Art upload:** ask the backend for a presigned URL, `PUT` the file straight to Cloudflare R2 (the bucket needs a CORS rule allowing `PUT` from the app origin), then save `art_key` on the card. Check type and size (2 MB or less) in the browser first, and show a cropped preview.
+- **Art upload:** ask the backend for a presigned URL, `PUT` the file straight to Cloudflare R2 (the bucket needs a CORS rule allowing `PUT` from the app origin), then save `art_key` on the card. Check type and size (2 MB or less) in the browser first. The preview is cropped by CSS only (`object-fit: cover` in the art frame), and the original file is uploaded unchanged; there is no crop tool. The upload starts as soon as a file is picked, so an upload error shows at once and Save stays quick; Save waits while an upload runs. An upload that is never saved leaves an unused object in R2 (art is never deleted, backend §4).
 
 ### 4.2 Deck builder
 - Two columns: the library on the left (filtered to the deck's origin plus neutral cards) and the deck list on the right, with copy counts.
@@ -252,6 +270,8 @@ frontend/
 | F4 | Create room, join by code, lobby | M6 (lobby part) | Two browsers can meet in a lobby, pick decks and mark ready |
 | F5 | Game board: static render from a mocked state → live WS → drag-and-drop from `legal_actions` → event animations | M5, M6 | Two browsers can play a full game to a win |
 | F6 | Match history, replay viewer, responsive layout, polish | M7 | Past games can be replayed step by step; the board works on a tablet |
+
+Done: F0 and F1 (2026-11-10).
 
 Tip: build the board in F5 against **mock `game_state` JSON fixtures** first (and reuse the backend's golden-replay fixtures), so UI work doesn't have to wait for the live WebSocket.
 

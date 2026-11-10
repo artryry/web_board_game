@@ -1,8 +1,8 @@
 import { screen, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { http } from "msw";
 
-import { apiError, apiUrl, LIBRARY_TOTALS, TEST_USER } from "@/test/handlers";
+import { apiError, apiUrl, LIBRARY_TOTALS, page, TEST_USER } from "@/test/handlers";
 import { renderApp, saveSession } from "@/test/renderApp";
 import { server } from "@/test/server";
 
@@ -12,6 +12,14 @@ function tileValue(label: string): Element | null {
 }
 
 describe("DashboardPage", () => {
+  // Only the totals matter here, so the lists answer with counts instead of the content store.
+  beforeEach(() => {
+    server.use(
+      http.get(apiUrl("/api/cards"), page(LIBRARY_TOTALS.cards)),
+      http.get(apiUrl("/api/card-groups"), page(LIBRARY_TOTALS.cardGroups)),
+    );
+  });
+
   it("greets the user and counts their cards, card groups and decks", async () => {
     saveSession();
     renderApp("/");

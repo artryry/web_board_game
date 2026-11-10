@@ -3,8 +3,13 @@ import { Link, NavLink, Outlet } from "react-router";
 import { useAuth, useCurrentUser } from "@/auth/useAuth";
 import { Button } from "@/ui/Button";
 
-// Later milestones add their pages here; the nav lists only pages that exist.
-const NAV_ITEMS = [{ to: "/", label: "Dashboard" }];
+// Later milestones add their pages here; the nav lists only pages that exist. Only the dashboard
+// matches its path exactly, so a card's editor still marks Cards as the current section.
+const NAV_ITEMS = [
+  { to: "/", label: "Dashboard", end: true },
+  { to: "/cards", label: "Cards", end: false },
+  { to: "/origins", label: "Origins", end: false },
+];
 
 export function AppShell() {
   const user = useCurrentUser();
@@ -23,7 +28,7 @@ export function AppShell() {
                 <li key={item.to}>
                   <NavLink
                     to={item.to}
-                    end
+                    end={item.end}
                     className={({ isActive }) =>
                       isActive ? "font-medium text-text" : "text-text-muted hover:text-text"
                     }

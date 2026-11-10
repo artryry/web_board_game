@@ -1,6 +1,7 @@
 import { useForm } from "react-hook-form";
 import { Link, useLocation } from "react-router";
 
+import { showServerError } from "@/api/showServerError";
 import { Button } from "@/ui/Button";
 import { TextField } from "@/ui/TextField";
 
@@ -15,8 +16,10 @@ import {
   USERNAME_PATTERN,
 } from "./bounds";
 import { keepFrom } from "./redirect";
-import { showServerError } from "./showServerError";
 import { useAuth } from "./useAuth";
+
+// Server codes that belong to one input rather than to the whole form.
+const FIELD_OF_CODE = { username_taken: "username", email_taken: "email" };
 
 export function RegisterPage() {
   const { register: createAccount } = useAuth();
@@ -36,7 +39,7 @@ export function RegisterPage() {
     try {
       await createAccount(values);
     } catch (error) {
-      showServerError(error, setError, ["username", "email", "password"]);
+      showServerError(error, setError, ["username", "email", "password"], FIELD_OF_CODE);
     }
   });
 

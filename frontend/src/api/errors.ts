@@ -43,6 +43,11 @@ export class ApiError extends Error {
   }
 }
 
+/** A failed request's message for the user: the server's own, or a network hint. */
+export function errorMessage(error: unknown): string {
+  return error instanceof ApiError ? error.message : "Can't reach the server. Try again.";
+}
+
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

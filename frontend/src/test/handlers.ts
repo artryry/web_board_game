@@ -27,10 +27,18 @@ const VALID_ACCESS = new Set([FIRST_ACCESS, REFRESHED_ACCESS]);
 
 export const LIBRARY_TOTALS = { cards: 12, cardGroups: 3, decks: 2 };
 
-/** An error answer in the API's shape. Every 401 carries `WWW-Authenticate`, as on the server. */
-export function apiError(status: number, code: string, message = code) {
+/**
+ * An error answer in the API's shape, with any `extra` fields next to the code (such as a 409's
+ * lists). Every 401 carries `WWW-Authenticate`, as on the server.
+ */
+export function apiError(
+  status: number,
+  code: string,
+  message = code,
+  extra: Record<string, unknown> = {},
+) {
   const headers: Record<string, string> = status === 401 ? { "WWW-Authenticate": "Bearer" } : {};
-  return HttpResponse.json({ detail: { code, message } }, { status, headers });
+  return HttpResponse.json({ detail: { code, message, ...extra } }, { status, headers });
 }
 
 function bearerOf(request: Request): string | null {
@@ -38,17 +46,23 @@ function bearerOf(request: Request): string | null {
   return header?.startsWith("Bearer ") ? header.slice("Bearer ".length) : null;
 }
 
+interface ResolverInfo<P> {
+  request: Request;
+  params: P;
+}
+
 /** Answers like the real API when the request carries a valid access token. */
-function authorized<T>(answer: () => T) {
-  return ({ request }: { request: Request }) => {
-    const token = bearerOf(request);
+export function authorized<P, T>(answer: (info: ResolverInfo<P>) => T) {
+  return (info: ResolverInfo<P>) => {
+    const token = bearerOf(info.request);
     if (token === null) return apiError(401, "not_authenticated");
     if (!VALID_ACCESS.has(token)) return apiError(401, "token_invalid");
-    return answer();
+    return answer(info);
   };
 }
 
-function page(total: number) {
+/** A list answer that only counts. */
+export function page(total: number) {
   return () => HttpResponse.json({ items: [], total });
 }
 
@@ -79,7 +93,6 @@ export const handlers = [
     apiUrl("/api/auth/me"),
     authorized(() => HttpResponse.json(TEST_USER)),
   ),
-  http.get(apiUrl("/api/cards"), authorized(page(LIBRARY_TOTALS.cards))),
-  http.get(apiUrl("/api/card-groups"), authorized(page(LIBRARY_TOTALS.cardGroups))),
+  // Cards and card groups come from the content store (contentHandlers.ts). Decks arrive in F2.
   http.get(apiUrl("/api/decks"), authorized(page(LIBRARY_TOTALS.decks))),
 ];

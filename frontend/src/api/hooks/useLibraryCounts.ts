@@ -1,7 +1,9 @@
-import { useQueries, type UseQueryResult } from "@tanstack/react-query";
+import { useQueries, useQuery, type UseQueryResult } from "@tanstack/react-query";
 
 import { api } from "@/api/client";
 import { unwrap } from "@/api/errors";
+
+import { cardCountQuery } from "./useCards";
 
 // Only `total` is read, so each list asks for the smallest page.
 const COUNT_ONLY = { query: { limit: 1 } };
@@ -14,13 +16,10 @@ export interface LibraryCounts {
 
 /** How many cards, card groups and decks the user has, from each list endpoint's `total`. */
 export function useLibraryCounts(): LibraryCounts {
-  const [cards, cardGroups, decks] = useQueries({
+  // The card library's group panel shows the same count, so it shares this query.
+  const cards = useQuery(cardCountQuery());
+  const [cardGroups, decks] = useQueries({
     queries: [
-      {
-        queryKey: ["cards", "count"],
-        queryFn: async ({ signal }) =>
-          unwrap(await api.GET("/api/cards", { params: COUNT_ONLY, signal })).total,
-      },
       {
         queryKey: ["card-groups", "count"],
         queryFn: async ({ signal }) =>

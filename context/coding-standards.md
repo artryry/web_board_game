@@ -67,7 +67,10 @@ core/               config, security, db session, dependencies
 
 ### UI
 - Style with Tailwind utility classes. Use the shared design tokens from the `@theme` block in `src/styles/index.css` (Tailwind 4 keeps them in CSS, not in a config file), not one-off values. That block resets Tailwind's default palette, so only our colours exist: `bg`, `surface`, `surface-raised`, `border`, `border-strong`, `text`, `text-muted`, `accent`, `danger`, `success` and `focus`. Text colours reach at least 4.5:1 on every surface. Data colours that come from the API (origin colours) are set inline.
+- **Origin colours** are never put behind text, and never shown alone: the origin's icon and name always come with them. Swatches get a `border-strong` outline, so dark colours such as `black` stay visible on the dark table.
 - Accessibility: use semantic elements, give interactive controls labels, make everything work with the keyboard, and offer click-to-target as well as drag.
+  - When hidden text completes a control's name (`Edit <span className="sr-only">Wolf</span>`), keep the space outside the span. Accessible names are trimmed per element, so a space inside it is lost ("EditWolf").
+  - A modal is `ui/Modal` (the native `<dialog>`), rendered outside any `<form>`. It hands focus back to its opener when it closes.
 
 ## 4. Testing
 
