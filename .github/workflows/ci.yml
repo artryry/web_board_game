@@ -1,0 +1,86 @@
+# Checks every push and pull request to master. Render deploys master only after these pass
+# (autoDeployTrigger: checksPass in render.yaml).
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+# A newer push to the same branch or pull request cancels the run still in progress.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: cardtable
+          POSTGRES_PASSWORD: cardtable
+          POSTGRES_DB: cardtable
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U cardtable -d cardtable"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    # The tests run against a real Postgres (they create `cardtable_test`) and fake Redis and R2,
+    # but Settings still requires every variable, so the rest get placeholder values.
+    env:
+      DATABASE_URL: postgresql+asyncpg://cardtable:cardtable@localhost:5432/cardtable
+      REDIS_URL: redis://localhost:6379/0
+      R2_ENDPOINT: https://ci.r2.cloudflarestorage.com
+      R2_ACCESS_KEY_ID: ci
+      R2_SECRET_ACCESS_KEY: ci
+      R2_BUCKET: ci
+      R2_PUBLIC_BASE_URL: https://art.ci.invalid
+      JWT_SECRET: ci-only-jwt-secret-of-at-least-32-characters
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check .
+      - run: ruff format --check .
+      - run: mypy app tests
+      - run: pytest
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  # Builds the production image, so a broken Dockerfile fails here rather than on Render.
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker build --tag card-table:ci .

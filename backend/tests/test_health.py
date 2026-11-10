@@ -63,6 +63,16 @@ async def test_health_ok(healthy_client: AsyncClient) -> None:
     assert response.json() == {"status": "ok", "postgres": True, "redis": True, "storage": True}
 
 
+async def test_liveness_touches_no_service() -> None:
+    # No dependency overrides and no lifespan: touching the DB, Redis or R2 would fail.
+    app = create_app()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/api/health/live")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
 async def test_health_degraded_when_redis_down(redis_down_client: AsyncClient) -> None:
     response = await redis_down_client.get("/api/health")
 

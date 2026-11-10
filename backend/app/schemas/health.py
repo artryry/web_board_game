@@ -8,3 +8,7 @@ class HealthResponse(BaseModel):
     postgres: bool
     redis: bool
     storage: bool
+
+
+class LivenessResponse(BaseModel):
+    status: Literal["ok"]

@@ -2,21 +2,46 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, HttpUrl, SecretStr
+from pydantic import Field, HttpUrl, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import ArgumentError
 
 # The repo-root .env is shared with docker-compose; resolve it absolutely so uvicorn,
 # alembic and pytest find it regardless of the working directory.
 ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
 
 
+def to_asyncpg_url(raw: str) -> str:
+    """Turns a libpq-style URL, as Neon hands it out, into one asyncpg accepts.
+
+    asyncpg takes TLS as `ssl=<mode>` and fails on libpq's `sslmode` and `channel_binding`
+    parameters. A URL that already targets asyncpg passes through unchanged.
+    """
+    try:
+        url = make_url(raw)
+    except ArgumentError:
+        # The message would contain the URL, password included.
+        raise ValueError("DATABASE_URL is not a valid database URL") from None
+    if url.drivername in ("postgres", "postgresql"):
+        url = url.set(drivername="postgresql+asyncpg")
+    sslmode = url.query.get("sslmode")
+    url = url.difference_update_query(["sslmode", "channel_binding"])
+    if isinstance(sslmode, str) and "ssl" not in url.query:
+        url = url.update_query_dict({"ssl": sslmode})
+    return url.render_as_string(hide_password=False)
+
+
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=ENV_FILE, extra="ignore")
+    # Validation errors would otherwise echo the raw input, which may be a secret.
+    model_config = SettingsConfigDict(env_file=ENV_FILE, extra="ignore", hide_input_in_errors=True)
 
     database_url: SecretStr
 
     redis_url: str
-    redis_password: SecretStr
+    # Only needed when the password isn't part of REDIS_URL (the local docker-compose Redis).
+    # Managed Redis such as Upstash puts it in the URL, which then takes precedence.
+    redis_password: SecretStr | None = None
 
     # Cloudflare R2, accessed through its S3-compatible API.
     r2_endpoint: HttpUrl
@@ -43,6 +68,16 @@ class Settings(BaseSettings):
     refresh_cookie_secure: bool = True
 
     health_check_timeout_s: float = 2.0
+
+    # The built frontend (frontend/dist). Set in the production image, where the API serves the
+    # app itself; unset in development, where nginx sends page requests to the Vite dev server.
+    frontend_dist_dir: Path | None = None
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def _use_asyncpg_url(cls, value: object) -> object:
+        raw = value.get_secret_value() if isinstance(value, SecretStr) else value
+        return to_asyncpg_url(raw) if isinstance(raw, str) else value
 
 
 @lru_cache

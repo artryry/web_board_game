@@ -40,6 +40,8 @@ The frontend for the card-game constructor described in [project_description.md]
 
 In development the app runs on `localhost:5173` and is reached through nginx at `http://localhost/`, so `/api` and `/ws` are on the same origin and need no CORS setup. Vite listens on every interface (`host: true`), because nginx in Docker can't reach a loopback-only server, and its hot-reload socket goes through nginx on port 80. `VITE_API_ORIGIN` can point the client at another API origin; it is empty by default (the page's own). The refresh cookie (§6) is only sent to the page's own origin, so another API origin would also need CORS with credentials. Card art is loaded from the Cloudflare R2 public URL, which is a different origin.
 
+In production (Render, [backend_plan.md §10.1](backend_plan.md)) the Docker image runs `npm run build`, and the API serves `dist/` itself: hashed bundles under `/assets`, and `index.html` for every other page path, so React Router deep links work. The app and `/api` again share one origin, so `VITE_API_ORIGIN` stays empty and the frontend needs no production-specific code.
+
 ## 2. Project layout
 
 ```

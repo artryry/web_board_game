@@ -1,4 +1,7 @@
 .env
+# Other local env files, such as .env.prod for testing the image against the hosted services.
+.env.*
+!.env.example
 *.pem
 __pycache__
 .pytest_cache

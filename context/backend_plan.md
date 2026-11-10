@@ -42,18 +42,23 @@ M3 (decks, share and import) is done:
 - `share_codes` table. Decks and card groups can be shared, previewed (`GET /api/share/{code}`) and imported as a forked copy (`POST /api/share/{code}/import`).
 - Shared pieces: `OwnedMixin` (the `owner_id` column that `get_owned` relies on), `core/codes.py` (the no-look-alike code alphabet) and `id_name_list` for `[{id, name}]` error bodies.
 
+Deployment is set up (2026-11-10, see §10.1):
+- a root `Dockerfile` (it builds the frontend; the API serves it), `render.yaml`, `backend/scripts/start.sh` and GitHub Actions CI
+- `app/frontend.py`, `GET /api/health/live`, Neon-style `DATABASE_URL`s accepted, `REDIS_PASSWORD` optional, dev tools moved to `requirements-dev.txt`
+
 ## 2. Stack
 
 | Concern | Choice |
 |---|---|
 | Web framework | FastAPI (already installed) |
 | ORM / migrations | SQLAlchemy 2.0 (async) + asyncpg, Alembic |
-| Config | pydantic-settings, reading `.env` |
+| Config | pydantic-settings, reading `.env` in development and the environment in production |
 | Live state | Redis (`redis.asyncio`) |
 | File storage | Cloudflare R2 through its S3 API with `aioboto3` (async), using presigned URLs. Card art is read from the bucket's public URL (custom domain or r2.dev). |
 | Auth | `pwdlib[argon2]` for password hashing, `PyJWT` for access and refresh tokens |
 | Tests | pytest, pytest-asyncio, httpx |
-| Process model | uvicorn with **one worker** in v1, so room locks can stay in-process (see §12 for scaling) |
+| Process model | uvicorn with **one worker** in v1, so room locks can stay in-process (see §13 for scaling) |
+| Hosting | One Render web service (Docker) that also serves the built frontend; Neon (Postgres), Upstash (Redis), R2 (art). See §10.1. |
 
 ## 3. Package layout
 
@@ -61,6 +66,7 @@ M3 (decks, share and import) is done:
 backend/
   app/
     main.py            app factory, router registration, lifespan (DB/Redis/R2 clients)
+    frontend.py        serves the built frontend (production only, when FRONTEND_DIST_DIR is set)
     core/
       config.py        Settings (DB URL, Redis URL, R2 creds, JWT secret, limits)
       errors.py        AppError / UnauthorizedError + handlers ({"detail": {code, message}})
@@ -102,9 +108,11 @@ backend/
       protocol.py      message schemas
       handler.py       /ws/rooms/{code} endpoint
   alembic/
+  scripts/start.sh     production entrypoint: migrations, then uvicorn
   tests/
-  requirements.txt
-  .env.example
+  requirements.txt     runtime packages (what the image installs)
+  requirements-dev.txt + tests, ruff, mypy
+.env.example           (repo root, with Dockerfile, .dockerignore, render.yaml, .github/workflows/)
 ```
 
 ## 4. Data model (Postgres)
@@ -494,11 +502,36 @@ Connect with `WS /ws/rooms/{code}?token=<access token>`. Every message has the f
 - **`nginx/default.conf`** (done in M0):
   - `/api/` goes to `http://host.docker.internal:8000`.
   - `/ws/` goes to `http://host.docker.internal:8000`, with the `Upgrade` and `Connection` headers and a long read timeout.
-  - `/` goes to the Vite dev server on `http://host.docker.internal:5173` (with WS upgrade for hot reload). In production it serves the built frontend.
+  - `/` goes to the Vite dev server on `http://host.docker.internal:5173` (with WS upgrade for hot reload).
+  - nginx is for development only. In production the API serves the built frontend itself (§10.1).
   - There is no `/media/`: card art is served from the R2 public URL.
 - `.env.example` lists every variable used in `docker-compose.yml` and `Settings` (done in M0).
 - **R2 setup (manual, in the Cloudflare dashboard):** a bucket, an API token with Object Read & Write on it, public access (custom domain or r2.dev) for card art (`R2_PUBLIC_BASE_URL`), and a CORS rule allowing `PUT` and `GET` from the app origin with the `Content-Type` header, for browser uploads. R2 only supports presigned GET/HEAD/PUT/DELETE: there is no presigned POST, so the size can't be capped by the URL and is checked again with a `HEAD` on save.
 - `requirements.txt` and the baseline Alembic migration are done (M0). Still to do: `scripts/seed.py`, which creates starter cards, two starter decks and a default ruleset.
+
+### 10.1 Deployment
+
+Agreed 2026-11-10. Railway, Render Starter and a Hetzner VPS were considered and set aside, to keep hosting at $0 for now.
+
+| Piece | Service | Notes |
+|---|---|---|
+| App | **Render**, one free web service, Docker, Frankfurt (`render.yaml`) | The root `Dockerfile` builds the frontend and the API image. The API serves `dist/` (`app/frontend.py`), so the app, `/api` and later `/ws` share one origin, as the refresh cookie needs (§8). No CORS. |
+| Postgres | **Neon**, AWS eu-central-1, the **direct** (non-pooled) endpoint | One long-lived process with its own SQLAlchemy pool needs no PgBouncer, and Neon's pooler would break asyncpg's prepared-statement cache. `Settings` turns Neon's `postgresql://…?sslmode=require&channel_binding=require` into `postgresql+asyncpg://…?ssl=require`. |
+| Redis | **Upstash**, AWS eu-central-1, `rediss://` | The password is in the URL, so `REDIS_PASSWORD` is optional. `health_check_interval=30` re-checks a connection that sat idle. |
+| Art | **R2**, a separate `card-art-prod` bucket, public through r2.dev | r2.dev is rate-limited; switch to a custom domain once there is one (only `R2_PUBLIC_BASE_URL` and the CORS rule change). |
+
+- **Start:** `backend/scripts/start.sh` runs `alembic upgrade head`, then one uvicorn worker with `--proxy-headers --forwarded-allow-ips "*"` (Render terminates TLS). Render's free plan has no pre-deploy step; on a paid plan the migration moves to `preDeployCommand`.
+- **Health:** Render polls `GET /api/health/live` every few seconds. It touches no service, so the probes spend no Upstash commands (the free tier has ~500K a month) and let Neon scale to zero. `GET /api/health` stays the full check, for manual and post-deploy checks.
+- **Secrets** are entered in the Render dashboard (`sync: false` in `render.yaml`); `JWT_SECRET` is generated by Render. The image holds no `.env` (`.dockerignore`).
+- **CI** (`.github/workflows/ci.yml`) runs on pushes and pull requests to `master`:
+  - backend: ruff, mypy and pytest against a Postgres service
+  - frontend: lint, format, typecheck, Vitest and the build
+  - `docker build`
+
+  Render deploys `master` only after the checks pass (`autoDeployTrigger: checksPass`). Playwright e2e stays local.
+- **Free-tier limits:**
+  - the service sleeps after 15 minutes without traffic (WebSocket messages count as traffic), and the first request then waits up to about a minute
+  - in-process room locks and turn timers (§9.3) are lost when it sleeps or redeploys, while room state in Redis survives. M6 has to restore timers from the stored deadline, or the app moves to an always-on plan.
 
 ## 11. Milestones
 

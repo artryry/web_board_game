@@ -4,6 +4,29 @@
  */
 
 export interface paths {
+    "/api/health/live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Liveness
+         * @description Answers as long as the process serves requests, without touching any service.
+         *
+         *     The hosting platform polls this every few seconds. Polling `/health` instead would spend
+         *     Redis commands and R2 operations on every probe and keep the database from scaling to zero.
+         */
+        get: operations["liveness_api_health_live_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -791,6 +814,14 @@ export interface components {
             /** Storage */
             storage: boolean;
         };
+        /** LivenessResponse */
+        LivenessResponse: {
+            /**
+             * Status
+             * @constant
+             */
+            status: "ok";
+        };
         /** LoginRequest */
         LoginRequest: {
             /**
@@ -1047,6 +1078,26 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    liveness_api_health_live_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LivenessResponse"];
+                };
+            };
+        };
+    };
     health_api_health_get: {
         parameters: {
             query?: never;
