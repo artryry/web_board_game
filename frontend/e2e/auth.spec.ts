@@ -1,16 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-// Users made here stay in the dev DB. They all start with "e2e_", so one statement removes them:
-// DELETE FROM users WHERE username LIKE 'e2e\_%';
-function newAccount() {
-  const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-  const username = `e2e_${suffix}`;
-  return { username, email: `${username}@example.com`, password: `pw-${suffix}-secret` };
-}
-
-function dashboardHeading(page: Page, username: string) {
-  return page.getByRole("heading", { name: `Welcome, ${username}` });
-}
+import { dashboardHeading, registerNewUser } from "./helpers.ts";
 
 async function refreshCookie(page: Page) {
   const cookies = await page.context().cookies();
@@ -18,15 +8,8 @@ async function refreshCookie(page: Page) {
 }
 
 test("register, log out, log in and log out again", async ({ page }) => {
-  const account = newAccount();
+  const account = await registerNewUser(page);
 
-  await page.goto("/register");
-  await page.getByLabel("Username").fill(account.username);
-  await page.getByLabel("Email").fill(account.email);
-  await page.getByLabel("Password").fill(account.password);
-  await page.getByRole("button", { name: "Create account" }).click();
-
-  await expect(dashboardHeading(page, account.username)).toBeVisible();
   await expect(page.getByRole("banner")).toContainText(account.username);
   await expect(page).toHaveURL(/^http:\/\/[^/]+\/$/);
 

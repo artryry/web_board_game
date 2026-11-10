@@ -1,6 +1,7 @@
 import { useForm } from "react-hook-form";
 import { Link, useLocation } from "react-router";
 
+import { showServerError } from "@/api/showServerError";
 import { Button } from "@/ui/Button";
 import { TextField } from "@/ui/TextField";
 
@@ -8,7 +9,6 @@ import type { LoginValues } from "./AuthContext";
 import { AuthLayout } from "./AuthLayout";
 import { EMAIL_PATTERN, PASSWORD_MAX_LENGTH } from "./bounds";
 import { keepFrom } from "./redirect";
-import { showServerError } from "./showServerError";
 import { useAuth } from "./useAuth";
 
 export function LoginPage() {

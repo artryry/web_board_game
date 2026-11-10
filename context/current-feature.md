@@ -1,199 +1,333 @@
-# Current feature: F0 — Frontend scaffold, API client, auth pages and app shell
+# Current feature: F1 — Catalog, SchemaForm, origin and card editors, card library, art upload
 
-**Status:** done (2026-11-06), on branch `f0-auth`, not committed yet. See [sessions/session_2026-11-06.md](sessions/session_2026-11-06.md). On 2026-11-08 the refresh token moved into an HttpOnly cookie ([sessions/session_2026-11-08.md](sessions/session_2026-11-08.md)).
-**Plan reference:** [frontend_plan.md §0–§3, §7 (F0) and §8](frontend_plan.md), [coding-standards.md §3](coding-standards.md), and [backend_plan.md §8 (auth endpoints and their 401 codes)](backend_plan.md)
-**Depends on:** M0 and M1, both done. M3 is done too and merged into `master` (`87ac8e4`); see [sessions/session_2026-11-04.md](sessions/session_2026-11-04.md).
-**Unblocks:** F1 (catalog and `SchemaForm`, origin and card editors, card library, art upload).
+**Status:** done, not committed yet. Spec written, planned and implemented 2026-11-10, on branch `f1-catalog` (from `master` at `d78c24f`, F0). See [sessions/session_2026-11-10.md](sessions/session_2026-11-10.md).
+**Plan reference:** [frontend_plan.md §0, §3 (origins and cards), §4.0, §4.1, §7 (F1) and §8](frontend_plan.md); [backend_plan.md §4 (origins, cards, card groups), §5 (catalog and the SchemaForm contract), §7.8 (cost suggestion) and §8 (endpoints, errors, PATCH rules, paging)](backend_plan.md); [coding-standards.md §3](coding-standards.md)
+**Depends on:** F0 (done, merged into `master`) and M2 (done). M3 is done too.
+**Unblocks:** F2 (deck builder, share dialog for decks and card groups, import page).
 
 ## Goal
-A React + TypeScript + Vite app in `frontend/`, served through nginx on `http://localhost/`. A user can **register, log in, stay logged in across reloads, and log out**.
+A logged-in user can build the content of their game:
+- **origins**: create, edit, duplicate and delete them, with a colour, an icon, an optional background image and up to 3 field effects
+- **cards**: create, edit and delete creatures and spells, with abilities or an effect, art, and a cost suggestion that updates as they type
+- **card library**: sort cards into groups, filter them, and see each card's balance label
 
-F0 also builds what every later milestone uses:
-- the router
-- the API client, with token refresh
-- the generated API types
-- TanStack Query
-- the Tailwind design tokens
-- the app shell
-- the lint, format and test tooling
+F1 also builds what F2–F5 reuse:
+- `useCatalog` and `SchemaForm`
+- `ui/CardFrame` (how a card looks, on the board too)
+- the origin colour and icon helpers
+- `ArtUpload`
+- `ui/Modal`
+- the cost formula
 
 ## Done when
-- [x] `npm run dev` serves the app, and `http://localhost/` loads it through nginx, with hot reload working through nginx too.
-- [x] **Register:**
-  - creates the account, logs the user in and opens the dashboard
-  - the form checks the server's bounds as you type (username 3–32 letters, digits or `_`; a valid email; password 8–128 characters)
-  - `username_taken` and `email_taken` show on their fields
-- [x] **Login** with email and password. `invalid_credentials` shows one message for both fields. After login the user goes back to the page they came from (default `/`).
-- [x] **Protected routes:**
-  - a logged-out user who opens an app route goes to `/login`, which remembers the route
-  - a logged-in user who opens `/login` or `/register` goes to `/`
-- [x] **Session:**
-  - the access token stays in memory and the refresh token in an HttpOnly cookie
-  - a reload keeps the user logged in
-  - a request that gets `token_expired` refreshes once and is retried, and parallel requests share that one refresh
-  - a failed refresh logs the user out
-- [x] **Logout:**
-  - it forgets the access token, clears the query cache and goes to `/login`, and the server deletes the refresh cookie
-  - the app's other open tabs log out too
-- [x] **App shell:** a header with the app name, the nav, the username and **Log out**. The dashboard shows the user's card, card group and deck counts, from the list endpoints' `total`.
-- [x] `npm run gen:api` regenerates `src/api/schema.d.ts` from the API. The file is committed, and the client is typed from it.
+- [x] **Catalog:**
+  - `useCatalog` loads `GET /api/catalog` once per session
+  - every module settings form is built from it by `SchemaForm`, with no form written for one module
+- [x] **`SchemaForm`** renders:
+  - integers (with min/max), numbers, booleans and string enums
+  - arrays of enums: checkboxes with `uniqueItems`, otherwise a list of selects
+  - labels from `title`, defaults from `default`
+  - a schema with no properties renders nothing, and an unsupported property shows a visible error instead of being skipped
+- [x] **Origin list (`/origins`):**
+  - the system origins appear as read-only templates with **Duplicate**
+  - the user's own origins can be edited, duplicated and deleted
+- [x] **Origin editor (`/origins/new`, `/origins/:id`):**
+  - fields: name, colour, icon, an optional background image, and up to 3 field effects with no repeats, each set up with `SchemaForm`
+  - `OriginPreview` updates live
+  - a system origin's page is read-only
+  - deleting an origin in use shows the server's `origin_in_use` lists of cards and decks
+- [x] **Card editor (`/cards/new`, `/cards/:id`):**
+  - fields:
+    - kind, name and mana cost
+    - origin: the user's own and the system origins. **+ New origin** opens the origin editor in a modal and selects the new origin.
+    - HP and DMG
+    - abilities (creatures, at most 2, no repeats) or one effect (spells), set up with `SchemaForm`
+    - group and art
+  - a spell's DMG follows its effect's `dmg_use` (see Decisions)
+  - changing the kind sends the right nulls, for example `hp: null` for a spell
+  - `CardPreview` shows the card in `CardFrame`
+  - deleting a card that a deck holds, or moving it to an origin that doesn't fit one, shows the server's `card_in_use` list of decks
+- [x] **Cost suggestion:**
+  - `CostSuggestion` updates as the stats and the ability params change
+  - **Use suggested** fills in the suggestion, capped at 10. Above 10, the hint says the card is stronger than any legal cost.
+  - Save is never blocked by the formula, and the editor shows no balance label
+- [x] **Card library (`/cards`):**
+  - a group panel lists **All cards**, **Ungrouped**, and each group with its card count
+  - groups can be created, renamed and deleted. `group_name_taken` shows on the name field. Deleting asks first and keeps the cards.
+  - a grid of cards in `CardFrame`, each with its balance label (*under-costed / balanced / over-costed*, in words and not by colour alone)
+  - filters for origin and kind, with the group and the filters kept in the URL
+  - **Load more** paging
+  - a card can be moved to another group from the grid and from the editor
+- [x] **Art upload** (card art and origin backgrounds):
+  - the browser checks the type (png, jpeg, webp) and the size (2 MiB or less) before any request
+  - flow: `POST /api/uploads/{card-art|origin-art}`, then `PUT` the file to `upload_url` with the same `Content-Type`, then save `art_key` with the card or origin
+  - the preview shows the picked file at once, cropped by CSS to the art frame
+  - **Remove** sends `null`
+  - errors (`unsupported_art_type`, `art_too_large`, a failed `PUT`, `invalid_art_key`) show at the uploader
+  - a real upload through R2 is checked by hand in the browser: card art and an origin background, both shown from the public URL
+- [x] **Nav:** Dashboard, Cards, Origins.
 - [x] **Checks pass:**
-  - `npm run lint`, `npm run format:check`, `npm run typecheck`, `npm test` (Vitest)
-  - `npm run e2e` (Playwright through nginx: register → log out → log in → log out)
-  - the backend checks (`pytest`, `ruff`, `mypy`)
+  - `npm run lint`, `npm run format:check`, `npm run typecheck`, `npm test` and `npm run build`
+  - `npm run e2e`, with the auth spec plus the new content spec
+  - `npm run gen:api` gives no diff (F1 doesn't change the API)
 
 ## Decisions
-Confirmed 2026-11-05:
-- **Logout doesn't revoke tokens.** It forgets the tokens in this browser and its other tabs. (Since 2026-11-08 the server deletes the refresh cookie, because scripts can't; see "Changes made during F0".)
-  - Refresh tokens stay stateless, and `/refresh` issues a new one without ending the old one.
-  - A refresh token that was already copied stays valid until it expires (30 days).
-  - Revocation (a `jti` allowlist in Redis, rotation, "log out everywhere") is a later backend task that needs no UI change (see "Out of scope").
-- **The look is a dark game table:**
-  - charcoal and slate surfaces, light text, one warm gold accent
-  - danger and success colours taken from the Okabe–Ito palette, like the origin colours, so they stay colour-blind safe
-  - card art and origin colours stand out on it
+Confirmed with the user on 2026-11-10:
+- **Art is cropped by CSS only:** `object-fit: cover` in the art frame, and the original file is uploaded unchanged. There is no crop tool. (frontend_plan §4.1 updated.)
+- **No cost filter in F1.** `GET /api/cards` filters only by origin, kind and group. A cost filter needs a backend change and waits. (frontend_plan §3 updated.)
+- **Art upload tests are mocked:**
+  - MSW fakes the presign and the R2 `PUT` in component tests
+  - the e2e spec doesn't upload art, so it doesn't depend on R2 and leaves nothing in the bucket
+  - one real upload is checked by hand
+- **The R2 CORS rule is in place** (the user, 2026-11-10), so browser uploads can reach the bucket.
 
-Confirmed during planning (2026-11-06), with the changes listed under "Changes made during F0" below:
-- **Versions:** the newest stable releases that fit together, pinned exactly (`save-exact`), with `package-lock.json` committed. Checked with `npm view`.
-  - pinned: React 19.3, TypeScript 5.9, Vite 8.3, React Router 8.5 (data router with `createBrowserRouter`, not framework mode), TanStack Query 5.106, Tailwind 4.3, React Hook Form 7.91, ESLint 10.14, Vitest 5.1, MSW 3.0, Playwright 1.65
-  - this machine has Node 24.12 and npm 11.6; `engines` and `.nvmrc` say Node 24
-  - Zustand, dnd-kit and Framer Motion are added only when a milestone needs them (F2 and later), so nothing is installed unused
-- **Tailwind 4 tokens live in CSS:** an `@theme` block in `src/styles/index.css`, instead of a `tailwind.config.js` file.
-  - colours: `bg`, `surface`, `surface-raised`, `border`, `text`, `text-muted`, `accent`, `danger`, `success` and `focus`
-  - plus radius and font
-  - coding-standards §3 is updated to match
-- **OpenAPI goes through nginx:** move FastAPI's schema to `/api/openapi.json` and the docs to `/api/docs` (today both sit outside `/api`, so nginx doesn't proxy them).
-  - `gen:api` reads `http://localhost/api/openapi.json`, like every other request
-  - this is a small backend change, with a test
-- **API client:**
-  - `openapi-fetch`, typed by the generated `paths`, with our own `fetch` function that adds the bearer token and handles refresh in one place
-  - the API origin comes from `VITE_API_ORIGIN` (empty by default = the page's own origin, through nginx); there is no Vite proxy, since the app is always opened through nginx
-- **API errors:**
-  - an `ApiError(status, code, message, extra)` is parsed from `{"detail": {code, message, ...}}`
-  - FastAPI's own 422 (`{"detail": [...]}`) becomes code `validation_error`, with errors per field
-  - forms map the codes onto their fields
-- **Token rules:**
-  - on start, a saved session goes to `POST /refresh` and then `GET /me`, behind a full-page spinner. (The refresh token was first stored under `cardtable.refresh` in `localStorage`. Since 2026-11-08 it is an HttpOnly cookie, and the `cardtable.session` hint marks a saved session.)
-  - only `token_expired` triggers a refresh; any other 401 code logs out
-  - each refresh stores the new access token, and its answer renews the cookie
-  - other tabs listen for the `storage` event: removing the key logs them out
-- **Login is by email**, because that is what the backend's `LoginRequest` takes.
-- **The form's input bounds copy the server's auth bounds**, so feedback is instant. These are input limits, not game rules, and the server's 422 and 409 answers are still shown.
-- **F0's routes** are `/login`, `/register`, `/` (the dashboard) and a 404 page. Later milestones add their own routes, and the nav shows only pages that exist.
-- **Vite dev server:**
-  - `host: true`, so nginx in Docker can reach it through `host.docker.internal`
-  - `port: 5173` with `strictPort: true`
-  - the HMR client port is 80, so hot reload works through nginx
-- **Tests:**
-  - Vitest, React Testing Library, jsdom, and MSW for API mocks
-  - Playwright on Chromium against the real stack through nginx
-  - e2e users are named `e2e_<random>`; they stay in the dev DB, and one `DELETE FROM users WHERE username LIKE 'e2e\_%'` clears them (user deletion cascades since M3)
-- **Lint and format:**
-  - ESLint flat config with `typescript-eslint` (type-checked), `react-hooks`, `react-refresh` and `jsx-a11y`
-  - Prettier with a width of 100, the same as ruff
-  - TypeScript `strict` plus `noUncheckedIndexedAccess`, and an `@/` alias for `src/`
+Confirmed with the plan on 2026-11-10, with these changes to the proposals below:
+- **`features/origins/OriginIcon.tsx`** replaces `originIcons.tsx`. The file exports a component, so the standards want PascalCase, and `react-refresh/only-export-components` rejects a `.tsx` that also exports the key → icon map. The map stays private inside it.
+- **A spell's effect is a required Effect select** plus `SchemaForm` (`SpellEffectField.tsx`), not a `ModuleListField`, since a spell needs exactly one.
+- **Modals render outside the editor's `<form>`**, because the **+ New origin** modal holds its own form and nested forms are invalid HTML.
+- **The test setup also stubs `URL.createObjectURL` and `revokeObjectURL`**, which jsdom 29 lacks.
+- **Two extra shared files:** `ui/ConfirmDialog.tsx` (the three delete flows) and `api/inUse.ts` (narrows a 409's `cards`/`decks` lists).
+- **Group panel counts:**
+  - **All cards** shares the dashboard's `['cards', 'count']` query
+  - **Ungrouped** adds `['cards', 'count', 'ungrouped']`
+- **A new card starts as** a creature with HP 1, DMG 1 and mana 1, the origin from `?origin=` (or Neutral) and the group from `?group=`.
+- **Cards are deleted from the editor.** The grid has Edit and **Move to group…**.
+- **`lucide-react` 1.71.0**, the newest release, with all 16 origin icons checked.
+
+The proposals, as confirmed:
+- **Icons:**
+  - use `lucide-react`, pinned exactly and checked with `npm view`. The catalog's 16 `origin_icons` keys are all Lucide icon names.
+  - `features/origins/originIcons.tsx` maps each key to its component, imported one by one so the bundle holds only those 16
+  - an unknown key (from a newer backend) falls back to `circle`
+- **Origin colours:**
+  - they come from `catalog.origin_colors` (key → hex) and are set inline (coding-standards §3)
+  - swatches and section tiles get a `border-strong` outline, so `black` (`#000000`) stays visible on the charcoal table
+  - colour is never the only signal: the icon and the name always come with it
+  - the colour and icon pickers are radio groups with names, so they work with the keyboard and screen readers
+- **The catalog is cached for the whole session:**
+  - query key `['catalog']`, `staleTime: Infinity`
+  - logout clears it with the rest of the cache
+  - it changes only when the backend is deployed
+- **`SchemaForm`:**
+  - it lives in `catalog/SchemaForm.tsx` and works inside the editor's React Hook Form (`useFormContext`) under a name prefix (for example `abilities.0.params`), so the params are part of the editor's form state
+  - the client checks only the schema's bounds; the server's `invalid_params` 422 is still shown
+  - adding a module fills its params from the schema defaults
+- **`catalog/ModuleListField.tsx`** is the list of chosen modules, used by creature abilities (at most 2) and origin field effects (at most 3):
+  - an **Add** select that hides the modules already chosen and is disabled at the limit
+  - each chosen module shows its name, its description, its `SchemaForm` and **Remove**
+  - F3's phase lists need ordering and repeats, so they will be built separately
+- **Cost formula:**
+  - `features/cards/cost.ts` mirrors `card_points` and `suggest_mana_cost` from `engine/cost.py`, plus an ability's cost: `base + Σ weight × params[name]` from the catalog's `cost`
+  - its test runs every case in `backend/tests/fixtures/cost_cases.json`
+  - the balance label always comes from the server's `balance`, so the client doesn't copy that function
+  - the editor computes locally and doesn't call `POST /api/cards/suggest-cost`, so typing sends no requests
+  - empty or invalid inputs count as 0, like the server's `hp or 0`
+- **Spell DMG by `dmg_use`:**
+  - `damage`: a "Damage" field, 1–99
+  - `heal`: a "Heal" field, typed as 1–99 and sent as a negative number (a stored −3 shows as 3)
+  - `none`: hidden, and sent as `null`
+- **Changing the kind** clears the abilities, because features and spell effects are different modules. A spell sends `hp: null`.
+- **Input bounds:**
+  - `api/bounds.ts` copies the server's content limits, the way `auth/bounds.ts` does: names 1–40, mana 0–10, HP 1–99, creature DMG 0–99, spell damage or heal 1–99, at most 2 abilities and 3 field effects, the art types and 2 MiB
+  - a comment points at the backend schemas
+  - the server's 422s are still shown
+- **Art upload:**
+  - the upload starts as soon as a file is picked, so Save stays quick and an upload error shows at once
+  - an upload that is never saved leaves an unused object in R2. Art objects are never deleted anyway (backend_plan §4).
+  - the preview uses `URL.createObjectURL` (revoked when it changes or unmounts) until the saved item's `art_url` or `background_art_url` takes over
+  - Save waits while an upload runs. This isn't a formula block.
+  - the R2 `PUT` uses plain `fetch` in `api/uploadArt.ts`, without the bearer header, since R2 is another origin. Components never call `fetch` themselves.
+  - `ArtUpload` lives in `features/cards/` (frontend_plan §2), and the origin editor imports it from there
+- **Saving:**
+  - the editors send the whole editable form on PATCH, not only the changed fields. The server re-checks the merged card anyway, and switching the kind then always sends its nulls.
+  - `art_key` is checked by the server only when it changes, so resending it is free
+  - Save and Cancel go back to the list the user came from, with its filters
+- **Duplicate** opens `/origins/new?from=<id>` filled in from the source, with the name "<name> copy" (cut to 40 characters). Nothing is created until Save, which `POST`s a new origin. Own origins can be duplicated too.
+- **URLs:**
+  - the library keeps its state in the query string: `group` (a group id or `ungrouped`), `origin` and `kind`
+  - F2's import can then link to `/cards?group=<id>`
+  - **New card** passes the current group and origin on to `/cards/new?group=…&origin=…` as starting values
+- **Lists and paging:**
+  - origins and card groups are short lists. `useOrigins` and `useCardGroups` load every page (100 per request) until they have `total`.
+  - the card grid uses `useInfiniteQuery` with 50 per page and **Load more**
+  - the origin picker groups the system origins and the user's own (`<optgroup>`)
+- **Data hooks and cache keys:**
+  - the hooks live in `api/hooks/`: `useOrigins`, `useOrigin`, `useCards`, `useCard`, `useCardGroups`, their mutations, and `useArtUpload`
+  - the keys start with `['origins']`, `['cards']` or `['card-groups']`, so the dashboard's count keys are refreshed by prefix
+  - a card change refreshes `cards` and `card-groups`, because the group counts change
+  - a group change refreshes both too, because deleting a group moves its cards to ungrouped
+  - an origin change refreshes `origins`
+- **Moving a card** to another group: **Move to group…** on a grid card opens a modal listing the groups and "No group". There is no drag-and-drop yet; dnd-kit arrives in F2.
+- **Deleting** asks for confirmation in a modal. A 409 shows its `[{id, name}]` lists in the same modal, with cards linked to their editors. Decks have no page until F2, so they show as names.
+- **`ui/Modal`:**
+  - it is built on the native `<dialog>` with `showModal()`, which gives focus handling, Esc to close and an inert background
+  - jsdom 29 has `HTMLDialogElement` but no `showModal`/`close`, so `src/test/setup.ts` adds a small stub
+- **`ui/CardFrame`:**
+  - it only displays, with no domain logic
+  - props: name, cost, HP, DMG, the art URL, the origin's hex and icon, and the ability names
+  - two sizes: `sm` for the library (and later the hand) and `md` for the editor preview
+  - F5 reuses it on the board
+- **`OriginPreview`** shows a section tile:
+  - the background image (or the colour), the icon and the name
+  - one badge per field effect: the module name, with its params as "Title value" in the badge's description
+- **Server errors on forms:** `auth/showServerError.ts` moves to `api/showServerError.ts` and takes a code → field map. Auth passes its current map. Content forms map:
+  - `group_name_taken` → name
+  - `invalid_art_key` → art
+  - anything else (`invalid_stats`, `invalid_params`, `invalid_abilities`, ...) → the form's message
+- **New dependency:** only `lucide-react`.
 - **New files the plan's layout (frontend_plan §2) doesn't list yet:**
-  - `src/AppShell.tsx` (the header, nav and user menu, next to `App.tsx`)
-  - `ui/TextField.tsx` (a labelled input with its error)
-  - `auth/tokens.ts` (the access token, the session hint and the cross-tab sync)
-  - `api/errors.ts`
+  - `catalog/ModuleListField.tsx`
+  - `features/origins/OriginForm.tsx` (the form, shared by the page and the **+ New origin** modal)
+  - `features/origins/originIcons.tsx`
+  - `features/cards/cost.ts`
+  - `api/bounds.ts`, `api/uploadArt.ts`, `api/showServerError.ts` (moved)
+  - `ui/SelectField.tsx` (a labelled select, like `TextField`)
+
+Changed or added while implementing (2026-11-10), all now in frontend_plan §2:
+- **`originValues.ts` and `cardValues.ts`** hold the pure form ↔ API code. Names like `originForm.ts` clash with `OriginForm.tsx` on Windows, which ignores case in file names.
+- **More small files**, to keep each one doing one thing and under about 200 lines:
+  - `catalog/`: `schemaFields.ts` (the pure schema parser, tested on its own), `EnumArrayParams.tsx`, `useFieldError.ts`, `humanize.ts`
+  - `ui/`: `ButtonLink`, `ErrorAlert`, `InUseList`, `LoadingState`, `buttonStyles.ts`, and a `danger` button variant
+  - `features/origins/`: `OriginListItem`, `OriginLookFields`, `originLook.ts`, `DeleteOriginDialog`
+  - `features/cards/`: the editor's field groups, `CardView`, `LibraryCard`, `LibraryFilters`, the group, move and delete dialogs, `libraryParams.ts` and `useArtField.ts`
+- **`ui/Modal`:**
+  - it focuses an element marked `data-autofocus` once open, because React's `autoFocus` runs before `showModal()`
+  - it gives focus back to the control that opened it (checked in the browser)
+- **A deleted card's own query isn't refetched**, so its editor doesn't flash a 404 while it closes.
+- **A spell's "Choose an effect." error** is read from `errors.abilities.root` too. React Hook Form files it there once the creature ability list has been shown.
+- **The file input** keeps the picked file's name, and is cleared after an error or a removal, so the same file can be picked again.
+- **Test setup:**
+  - Vitest may read `backend/tests/fixtures`, through `server.fs.allow` set only while Vitest runs. `cost.test.ts` imports `cost_cases.json` with `?raw`.
+  - `testTimeout` is 15 s, and Testing Library waits up to 3 s. The defaults failed when the whole suite ran next to the dev stack.
+- **Data hooks:** the dashboard's card count is a `useQuery(cardCountQuery())` of its own, because `useQueries` rejected the shared query's key type.
 
 ## Tasks
-Order: scaffold and tooling → styles and `ui/` → backend OpenAPI URL → generated types and API client → auth → shell and dashboard → tests → docs.
+Order: dependency and `ui/` → catalog and `SchemaForm` → shared hooks and helpers → origins → art upload → card editor and cost → library and groups → routes and nav → e2e → docs. Each step comes with its tests.
 
-### Scaffold and tooling
-- [x] Scaffold Vite `react-ts` into `frontend/`, pin exact versions (`.npmrc` with `save-exact=true`), and add `engines` and `.nvmrc`.
-- [x] `tsconfig`: `strict`, `noUncheckedIndexedAccess`, the `@/` alias.
-- [x] ESLint and Prettier configs. Scripts: `dev`, `build`, `preview`, `lint`, `format`, `format:check`, `typecheck`, `test`, `e2e`, `gen:api`.
-- [x] `vite.config.ts`: `host`, `strictPort`, the HMR client port 80, the Tailwind plugin, the alias, and the Vitest config.
-- [x] Root `.gitignore`: `node_modules`, `dist`, `playwright-report`, `test-results`. Add `frontend/.env.example` (`VITE_API_ORIGIN=`).
+### Dependency and `ui/`
+- [x] Add `lucide-react`, pinned exactly.
+- [x] `ui/Modal.tsx` (native `<dialog>`, with a title, Esc and close) and the `showModal`/`close` stub in `src/test/setup.ts`.
+- [x] `ui/SelectField.tsx` and `ui/CardFrame.tsx` (`sm` and `md`).
 
-### Styles and `ui/`
-- [x] `src/styles/index.css`: Tailwind, the `@theme` tokens (dark table palette, radius, font), base body styles and a visible focus ring.
-- [x] `ui/Button.tsx`, `ui/TextField.tsx` (label, error text tied to the input with `aria-describedby`) and `ui/Spinner.tsx`.
+### Catalog and `SchemaForm`
+- [x] `catalog/useCatalog.ts`: key `['catalog']`, `staleTime: Infinity`, plus a helper that finds a module by key.
+- [x] `catalog/SchemaForm.tsx`: integer, number, boolean, string enum, an array of enums (checkboxes with `uniqueItems`, otherwise a list of selects within `minItems`/`maxItems`), no properties, and an unsupported property shown as an error.
+- [x] `catalog/ModuleListField.tsx`: add, remove, the limit, no repeats, and defaults from the schema.
 
-### API
-- [x] Backend: `openapi_url="/api/openapi.json"` and `docs_url="/api/docs"` in `create_app`, with a test.
-- [x] `gen:api` (`openapi-typescript`) → `src/api/schema.d.ts`, committed.
-- [x] `api/client.ts`: `openapi-fetch` with the auth `fetch` (bearer header; one shared refresh on `token_expired`, then a retry; logout when the refresh fails). `api/errors.ts`: `ApiError` and the body parsing.
-- [x] `QueryClient`: no retries on 4xx; the cache is cleared on logout.
+### Shared hooks and helpers
+- [x] `api/bounds.ts` (the content limits), and `api/showServerError.ts` moved from `auth/`, with a code → field map. Update the auth pages.
+- [x] `api/hooks/useOrigins.ts` (all pages, `useOrigin`, create, update, delete), `useCardGroups.ts` (all pages, create, rename, delete), `useCards.ts` (infinite list with filters, `useCard`, create, update, delete), with the cache refreshes above.
+- [x] `features/origins/originIcons.tsx`, and an `OriginBadge` (swatch, icon and name) for the pickers, filters and cards.
 
-### Auth
-- [x] `auth/tokens.ts`: the session hint in `localStorage` (reads and writes wrapped in try/catch) and the `storage` listener. The refresh token is an HttpOnly cookie since 2026-11-08.
-- [x] `auth/AuthProvider.tsx`: the state is `loading`, `anonymous` or `authenticated(user)`, with `login`, `register` and `logout`, and `useAuth`. It restores the session on start.
-- [x] `auth/ProtectedRoute.tsx` (redirects to `/login` and remembers the route) and a guest-only guard for `/login` and `/register`.
-- [x] `auth/LoginPage.tsx` and `auth/RegisterPage.tsx` with React Hook Form: the client bounds, server codes shown on the fields, a busy state, and links between the two pages.
+### Origins
+- [x] `features/origins/OriginListPage.tsx`: the system templates (**Duplicate**), then the user's own (edit, **Duplicate**, delete with the `origin_in_use` lists).
+- [x] `features/origins/OriginForm.tsx`: the name, the colour and icon radio groups, `ArtUpload` for the background, and `ModuleListField` with field effects (at most 3).
+- [x] `features/origins/OriginEditorPage.tsx`: new, edit, read-only for system origins, and the `?from=` prefill. `OriginPreview.tsx` beside the form.
 
-### Shell and dashboard
-- [x] `routes.tsx` (`createBrowserRouter`): guest routes, a protected layout route with `AppShell`, the dashboard as its index, and a 404 page.
-- [x] `AppShell.tsx`: the app name, the nav (Dashboard for now), the username and **Log out**.
-- [x] `features/dashboard/DashboardPage.tsx`: a welcome line plus tiles counting cards, card groups and decks (`api/hooks/useLibraryCounts`, with `limit=1` and reading `total`).
+### Art upload
+- [x] `api/uploadArt.ts`: request the ticket, then `PUT` to R2 with the `Content-Type`. `api/hooks/useArtUpload.ts` as a mutation.
+- [x] `features/cards/ArtUpload.tsx`: `kind` is `card` or `origin`; the browser checks the type and size; the local preview cropped by CSS; **Remove**; the errors.
+
+### Card editor and cost
+- [x] `features/cards/cost.ts`, and its test over `cost_cases.json`.
+- [x] `features/cards/CardEditorPage.tsx`:
+  - kind, name, origin (with **+ New origin** in a modal), HP and DMG by kind and `dmg_use`
+  - mana, abilities or effect, group, art, and delete with `card_in_use`
+  - split the page into smaller components when it grows past about 200 lines
+- [x] `features/cards/CostSuggestion.tsx` (live, **Use suggested** capped at 10, the hint above 10) and `CardPreview.tsx`.
+
+### Library and groups
+- [x] `features/cards/CardLibraryPage.tsx`: the grid, the origin and kind filters in the URL, **Load more**, **New card** with the starting values, and **Move to group…**.
+- [x] `features/cards/CardGroupPanel.tsx`: All, Ungrouped, the groups with counts, and create, rename and delete.
+- [x] `features/cards/BalanceLabel.tsx`.
+
+### Routes and nav
+- [x] `routes.tsx`: `/origins`, `/origins/new`, `/origins/:id`, `/cards`, `/cards/new` and `/cards/:id`, inside the protected `AppShell` layout. The nav gets Cards and Origins.
 
 ### Tests
-- [x] Vitest setup: jsdom, RTL, MSW handlers for the auth endpoints and the list endpoints.
-- [x] Client tests:
-  - the bearer header is sent
-  - `token_expired` → refresh → retry
-  - parallel 401s make one refresh
-  - a failed refresh logs out
-  - `ApiError` parsing for our body and for FastAPI's 422 list
-- [x] Auth tests:
-  - login goes back to the remembered route
-  - the `invalid_credentials` message
-  - register's client bounds, and `username_taken` / `email_taken` on their fields
-  - the protected-route redirect and the guest guard
-  - the session is restored on start
-  - logout clears everything, and the other tabs log out
-- [x] Playwright (`frontend/e2e/auth.spec.ts`, Chromium, against `http://localhost/`): register → the dashboard shows the username → log out → log in → log out.
+- [x] The fake API:
+  - a hand-written catalog fixture typed as `CatalogOut`, covering every `SchemaForm` type and every `dmg_use`
+  - MSW handlers for origins, cards, card groups and uploads, backed by a small in-memory store that is reset after each test
+  - a fake R2 `PUT` URL
+- [x] `SchemaForm` and `ModuleListField`: each type, the bounds, the defaults, the limit, no repeats, and the unsupported-property error.
+- [x] `cost.ts`: every case in `cost_cases.json`, plus an ability's cost from a catalog spec.
+- [x] Origin editor:
+  - create with a field effect; the preview updates
+  - at most 3 effects, with no repeats
+  - a system origin is read-only; **Duplicate** fills in the editor
+  - the `origin_in_use` lists
+- [x] Card editor:
+  - a creature with an ability; the suggestion follows the stats and the params
+  - **Use suggested** caps at 10 and shows the hint
+  - saving a cost that differs from the suggestion
+  - the spell DMG for `damage`, `heal` (sent negative) and `none` (hidden, `null`)
+  - switching the kind sends `hp: null`
+  - **+ New origin** selects the new origin
+  - the `card_in_use` list
+- [x] Library:
+  - the group panel and its counts
+  - the filters in the URL
+  - create, rename (`group_name_taken`) and delete a group
+  - **Move to group…**, the balance labels, **Load more**
+- [x] Art upload:
+  - a wrong type and too large a file are refused before any request
+  - the presign, then the `PUT` with the `Content-Type`, then `art_key` in the saved body
+  - a failed `PUT` shows a message
+  - **Remove** sends `null`
+- [x] Playwright `e2e/content.spec.ts`, as an `e2e_<random>` user:
+  - register
+  - create an origin with a field effect
+  - create a creature with an ability, and check the suggestion changes with HP
+  - create a group and move the card into it
+  - the library shows the card in that group with its balance label
+  - delete the card and the origin
+- [x] By hand in the browser through nginx: card art and an origin background uploaded to the real R2 and shown from the public URL.
 
 ### Docs
 - [x] [frontend_plan.md](frontend_plan.md):
-  - §1: versions, Tailwind 4 tokens in CSS, `openapi-fetch`, MSW
+  - §1: `lucide-react`
   - §2: the new files
-  - §6: how token refresh works
-  - §7: F0 done
-- [x] [backend_plan.md](backend_plan.md) §8: the OpenAPI and docs URLs.
-- [x] [coding-standards.md](coding-standards.md) §3: the tokens live in `@theme`; Prettier width 100.
-- [x] [CLAUDE.md](../CLAUDE.md): the frontend commands (`npm install`, `npm run dev`, `gen:api`, checks, `e2e`).
-- [x] Decisions recorded here; session file written.
-
-## Changes made during F0
-- **Versions:** the newest releases didn't all fit together.
-  - TypeScript stays on 5.9.3: 7.0 isn't supported yet by `typescript-eslint` (`<6.1`) or `openapi-typescript` (`^5`).
-  - ESLint 10.14 with the original `eslint-plugin-jsx-a11y` 6.10.2, plus an npm `overrides` entry. Its peer range stops at ESLint 9, which npm now marks unsupported, but the plugin only uses `context.options`, `report` and `settings`, which ESLint 10 kept. (The user chose this over staying on ESLint 9.)
-  - jsdom 29.1.1: 30+ needs Node ≥24.15, and this machine has 24.12.
-  - React Router 8, not 7: data mode is unchanged, `RouterProvider` comes from `react-router/dom`, and `react-router-dom` is gone.
-- **`VITE_API_ORIGIN` instead of `VITE_API_BASE_URL=/api`:** the generated paths already start with `/api`, so a `/api` base would have requested `/api/api/...`.
-- **Backend:** `redoc_url=None` as well (ReDoc would sit outside `/api`). Also a fix that wasn't planned: `GET /api/cards` showed one required `filters` object in OpenAPI, because FastAPI only lists a query model's fields when the model is the route's only query parameter. The route now takes one `CardListQuery` (filters + `limit`/`offset`), and `test_openapi.py` checks that no query parameter is an object. The API's behaviour didn't change.
-- **Tokens:** `border-strong` (`#6b7480`, 3:1 for input outlines) was added. Danger and success use lighter tints of the Okabe–Ito vermillion and bluish green (`#f07a2a`, `#2bb88f`), because the originals fall below 4.5:1 for small text on the raised surface.
-- **Return page after logout:** an intended logout (this tab or another) starts the next login at the dashboard. An expired session or a deep link remembers the page.
-- **Vite `host: true` is needed:** with Vite on 127.0.0.1 only, nginx answered 502. So the dev server is also reachable from the LAN and VPN interfaces, unless the Windows firewall blocks it.
-- **Refresh token in an HttpOnly cookie (2026-11-08, asked by the user after F0 was done):** so that no script, and no XSS, can read the long-lived token.
-  - Backend: register, login and refresh return only `{access}` and set the `refresh_token` cookie (`HttpOnly`, `SameSite=Strict`, `Path=/api/auth`, `Secure` unless `REFRESH_COOKIE_SECURE=false`). `/refresh` reads only the cookie. A new `POST /api/auth/logout` deletes it. Details in backend_plan §8.
-  - Frontend: `localStorage` keeps only the non-secret hint `cardtable.session`. It saves a refresh call on start when nobody is logged in, and its removal still logs out the other tabs. Logout calls `/logout`. A refresh answer that arrives after a logout has set a new cookie, so the client deletes it again.
-  - Tokens stay stateless: logout deletes the cookie but revokes nothing (see "Out of scope").
-- **Extra small files:** `auth/AuthContext.ts`, `auth/useAuth.ts`, `auth/GuestRoute.tsx`, `auth/redirect.ts`, `auth/bounds.ts`, `auth/showServerError.ts`, `auth/AuthLayout.tsx`, `features/dashboard/CountTile.tsx`, `src/NotFoundPage.tsx`, `src/env.d.ts`, `api/queryClient.ts`, `src/test/`, `e2e/global-setup.ts`.
+  - §4.0 and §4.1: Duplicate fills in the editor, the heal sign, the upload starting when a file is picked
+  - §7: F1 done
+- [x] [coding-standards.md](coding-standards.md) §3, if a new rule comes up (for example the origin swatch outline).
+- [x] Record the decisions here and write the session file.
 
 ## Out of scope (later milestones)
-- The catalog, `SchemaForm`, origin and card editors, the card library and art upload (F1)
-- Decks, the share dialog and the import page (F2); rules (F3); rooms, the lobby, the WebSocket and Zustand (F4, F5)
-- **Revoking refresh tokens** (Redis `jti` allowlist, rotation, revoking on `POST /api/auth/logout`, "log out everywhere"). This is a backend task for later, and the UI's logout button stays the same. `/logout` exists since 2026-11-08, but it only deletes the cookie.
-- Password reset, email verification, account settings and deleting an account
-- A dark/light theme switch (frontend_plan §9 "Later") and translations
+- Sharing a card group and the share dialog, the deck builder, and the import page (F2)
+- Drag-and-drop between groups (dnd-kit comes in F2); moving uses a menu
+- Selecting several cards to move or delete at once
+- A cost filter in the library: it needs a backend filter (dropped 2026-11-10)
+- A crop tool (art is cropped by CSS only)
+- A warning about unsaved changes when leaving an editor
+- The dashboard's "most recent" lists and an origin count (frontend_plan §3)
+- Deleting art objects from R2 (they are never deleted, backend_plan §4)
+- The rules editor (F3), rooms and the lobby (F4), the game board (F5)
 
-## Carried over
-- **R2 CORS rule (manual, from M2):** browser uploads fail until the bucket allows `PUT` and `GET` from `http://localhost` with the `Content-Type` header. F0 doesn't need it, F1 does. The JSON is in [session_2026-11-01.md](sessions/session_2026-11-01.md) and backend_plan §10.
-
-## Notes and decisions
-- **The backend the frontend relies on** (M1–M3):
-  - every route except register, login, refresh, logout and health needs `Authorization: Bearer <access>`, and every 401 carries `WWW-Authenticate: Bearer`
-  - `POST /api/auth/register` (201) and `/login` return `{access}` and set the refresh cookie; `/refresh` reads the cookie and returns `{access}` with a new cookie; `/logout` (204) deletes the cookie; `GET /api/auth/me` returns `{id, username, email, created_at}` (the cookie parts since 2026-11-08)
-  - the 401 codes are `not_authenticated`, `token_expired`, `token_invalid`, `token_wrong_type` and `invalid_credentials`; the 409s are `username_taken` and `email_taken`
-  - errors are `{"detail": {"code", "message", ...extra}}`, and malformed input gets FastAPI's default 422 (`{"detail": [...]}`)
-  - list endpoints take `limit`/`offset` and return `{items, total}`; ids are UUIDs, and timestamps are ISO 8601 with a time zone
-  - access tokens last 15 minutes and refresh tokens 30 days (`ACCESS_TOKEN_TTL_MIN`, `REFRESH_TOKEN_TTL_DAYS`)
-- **The server is authoritative** (frontend_plan §0): the UI never re-implements game rules. F0 has none to copy; its only copied rules are the auth input bounds above.
-- **Local layout:** `frontend/` already holds the empty folders from frontend_plan §2 (`src/api`, `src/auth`, …, `e2e`). Git doesn't track empty folders, so they appear in history once files land in them.
+## Notes
+- **F1 needs no backend change.** It relies on M2 and M3 as they are:
+  - `GET /api/catalog`:
+    - `features` and `spells` carry `cost: {base, per_param}`, and spells also `dmg_use`
+    - `field_effects` have params only
+    - `origin_colors` is a list of `{key, hex}`, and `origin_icons` a list of keys
+  - `OriginOut`:
+    - fields: `id`, `name`, `color`, `icon`, `field_effects: [{key, params}]`, `background_art_key`, `background_art_url`, `is_system`, `system_key` and the timestamps
+    - the list puts system origins first, then the user's own, each by name
+    - a PATCH or DELETE on a system origin gives 403 `system_origin_read_only`
+  - `CardOut`:
+    - fields: `id`, `kind`, `name`, `origin_id`, `mana_cost`, `hp`, `dmg`, `abilities`, `group_id`, `art_key`, `art_url`, `suggested_mana_cost`, `balance` and the timestamps
+    - the list is newest first, filtered by `origin_id`, `kind`, and `group_id` or `ungrouped=true` (sending both gives 422)
+  - `CardGroupOut`: `id`, `name`, `card_count`, `share_code` and the timestamps. The list is sorted by name.
+  - uploads take `{content_type, size}` and return `{upload_url, art_key, expires_in}`. The presigned `PUT` signs the `Content-Type`.
+  - PATCH changes only the fields sent. `null` clears `hp`, `dmg`, `group_id`, `art_key` and `background_art_key`, and is refused for required fields.
+  - lists take `limit` (1–100) and `offset`, and return `{items, total}`
+  - error codes: `origin_in_use` (`cards`, `decks`), `card_in_use` (`decks`), `group_name_taken`, `unknown_module`, `invalid_params`, `invalid_field_effects`, `invalid_stats`, `invalid_abilities`, `invalid_origin`, `invalid_group`, `unsupported_art_type`, `art_too_large`, `invalid_art_key`, and the `*_not_found` 404s
+- **Module params in use today:**
+  - features, spells and field effects use only bounded integers and string enums
+  - an array of enums with `uniqueItems` appears only in `action_phase` (F3)
+  - no module uses numbers or booleans yet
+  - `SchemaForm` still supports and tests every type in the backend's contract (`tests/engine/test_modules.py`)
+- **The server is authoritative** (frontend_plan §0). F1 copies only the input bounds and the cost formula, which is advice that frontend_plan §4.1 asks for.
+- **Seeded system origins:** `neutral` (no effects), `forest`, `volcano`, `ocean` and `mountain`.
 
 ## Open questions
 - None right now.
