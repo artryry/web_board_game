@@ -317,12 +317,12 @@ The DEBUG steps of the share import and the art check (see "When one line per re
   - they carry the request id where there is one
   - an error sent from the browser carries the last 20 steps as `breadcrumbs`
 - [x] **UI:** a 5xx message shows "(error ID: …)", and a render error shows `RouteErrorPage` instead of a stack trace.
-- [ ] **Checked by hand:**
+- [x] **Checked by hand:**
   - dev: coloured lines
   - the production image run locally: JSON lines
   - a browser error in the production build appears as `web.*`, and it shares the request id with the API's line when an API call failed
   - after deploying, the same on Render
-- [ ] **Checks pass:**
+- [x] **Checks pass:**
   - backend: `pytest` (461 passed), `ruff check .`, `ruff format --check .` and `mypy app tests`: pass
   - frontend: `npm run lint`, `format:check`, `typecheck`, `test` (147 passed) and `build`: pass. `e2e` not run yet (Open questions).
   - `npm run gen:api` changes only what the new endpoint adds: yes
