@@ -8,6 +8,8 @@ export class ApiError extends Error {
   readonly code: string;
   readonly extra: Readonly<Record<string, unknown>>;
   readonly fieldErrors: Readonly<Record<string, string>>;
+  /** The `X-Request-ID` of the answer: the server's log lines for this request carry it. */
+  readonly requestId: string | null;
 
   constructor(
     status: number,
@@ -15,6 +17,7 @@ export class ApiError extends Error {
     message: string,
     extra: Record<string, unknown> = {},
     fieldErrors: Record<string, string> = {},
+    requestId: string | null = null,
   ) {
     super(message);
     this.name = "ApiError";
@@ -22,30 +25,37 @@ export class ApiError extends Error {
     this.code = code;
     this.extra = extra;
     this.fieldErrors = fieldErrors;
+    this.requestId = requestId;
   }
 
-  static fromBody(status: number, body: unknown): ApiError {
+  static fromBody(status: number, body: unknown, requestId: string | null = null): ApiError {
     const detail = isRecord(body) ? body.detail : undefined;
     if (isRecord(detail) && typeof detail.code === "string") {
       const { code, message, ...extra } = detail;
-      return new ApiError(status, code, typeof message === "string" ? message : code, extra);
+      const text = typeof message === "string" ? message : code;
+      return new ApiError(status, code, text, extra, {}, requestId);
     }
     if (Array.isArray(detail)) {
-      return new ApiError(
-        status,
-        "validation_error",
-        "Some fields are invalid.",
-        {},
-        fieldErrorsFrom(detail),
-      );
+      const fieldErrors = fieldErrorsFrom(detail);
+      const text = "Some fields are invalid.";
+      return new ApiError(status, "validation_error", text, {}, fieldErrors, requestId);
     }
-    return new ApiError(status, `http_${status}`, `The request failed (HTTP ${status}).`);
+    const text = `The request failed (HTTP ${status}).`;
+    return new ApiError(status, `http_${status}`, text, {}, {}, requestId);
   }
 }
 
-/** A failed request's message for the user: the server's own, or a network hint. */
+/** The first characters of a request id: enough to find its line in the server's log. */
+export const ERROR_ID_LENGTH = 8;
+
+/**
+ * A failed request's message for the user: the server's own, or a network hint. A server error
+ * ends with its error ID, so a report of it can be found in the logs.
+ */
 export function errorMessage(error: unknown): string {
-  return error instanceof ApiError ? error.message : "Can't reach the server. Try again.";
+  if (!(error instanceof ApiError)) return "Can't reach the server. Try again.";
+  if (error.status < 500 || error.requestId === null) return error.message;
+  return `${error.message} (error ID: ${error.requestId.slice(0, ERROR_ID_LENGTH)})`;
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -70,7 +80,8 @@ type SuccessData<R> = R extends { data: infer D; error?: never } ? D : never;
 /** Returns an openapi-fetch call's data, or throws its error body as an `ApiError`. */
 export function unwrap<R extends CallResult>(result: R): SuccessData<R> {
   if (!result.response.ok) {
-    throw ApiError.fromBody(result.response.status, result.error);
+    const requestId = result.response.headers.get("X-Request-ID");
+    throw ApiError.fromBody(result.response.status, result.error, requestId);
   }
   return result.data as SuccessData<R>;
 }

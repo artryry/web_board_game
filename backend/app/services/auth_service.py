@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.core.errors import AppError, UnauthorizedError
+from app.core.logging_config import get_logger
 from app.core.security import (
     TokenType,
     create_access_token,
@@ -18,6 +19,8 @@ from app.core.security import (
 )
 from app.models.user import User
 from app.schemas.auth import LoginRequest, RegisterRequest
+
+log = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -66,6 +69,7 @@ async def register(db: AsyncSession, data: RegisterRequest, settings: Settings) 
         await db.rollback()
         await _ensure_available(db, data.username, email)
         raise
+    log.info("auth.registered", user_id=user.id)
     return _issue_tokens(user.id, settings)
 
 
@@ -76,6 +80,7 @@ async def authenticate(db: AsyncSession, data: LoginRequest, settings: Settings)
     password_ok = await asyncio.to_thread(verify_password, data.password, password_hash)
     if user is None or not password_ok:
         raise UnauthorizedError("invalid_credentials", "Wrong email or password")
+    log.info("auth.logged_in", user_id=user.id)
     return _issue_tokens(user.id, settings)
 
 

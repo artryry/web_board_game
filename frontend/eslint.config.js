@@ -26,7 +26,14 @@ export default defineConfig([
     rules: {
       // Numbers in template strings are common in UI text and safe.
       "@typescript-eslint/restrict-template-expressions": ["error", { allowNumber: true }],
+      // Log through `log` from @/log/logger, which gives every entry the same shape.
+      "no-console": "error",
     },
+  },
+  {
+    // The one place the app writes to the console.
+    files: ["src/log/consoleSink.ts"],
+    rules: { "no-console": "off" },
   },
   {
     files: ["vite.config.ts", "playwright.config.ts", "e2e/**"],

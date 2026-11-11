@@ -1,8 +1,11 @@
 import createClient from "openapi-fetch";
 
 import { endSession, getAccessToken, getGeneration, storeAccessToken } from "@/auth/tokens";
+import { isAbort } from "@/log/errorHandlers";
+import { log } from "@/log/logger";
 
 import { errorCode } from "./errors";
+import { newRequestId, REQUEST_ID_HEADER } from "./requestId";
 import type { paths } from "./schema";
 
 /**
@@ -29,11 +32,11 @@ const AUTH_PATHS = new Set([
  * session.
  */
 async function authFetch(request: Request): Promise<Response> {
-  if (AUTH_PATHS.has(new URL(request.url).pathname)) return fetch(request);
+  if (AUTH_PATHS.has(new URL(request.url).pathname)) return send(request);
 
   const retry = request.clone();
   const sentToken = getAccessToken();
-  const response = await fetch(withBearer(request, sentToken));
+  const response = await send(withBearer(request, sentToken));
   if (response.status !== 401 || sentToken === null) return response;
 
   const code = errorCode(await readJson(response.clone()));
@@ -45,7 +48,44 @@ async function authFetch(request: Request): Promise<Response> {
   if (getAccessToken() === sentToken && !(await refreshSession())) return response;
 
   const newToken = getAccessToken();
-  return newToken === null ? response : fetch(withBearer(retry, newToken));
+  return newToken === null ? response : send(withBearer(retry, newToken));
+}
+
+/**
+ * Sends one attempt with its own request id (a retry gets a new one), and logs it: every call
+ * at debug, for the breadcrumbs; a server error or a network failure as a warning. The server
+ * logs its side of a 5xx with the traceback, under the same id.
+ */
+async function send(request: Request): Promise<Response> {
+  const requestId = newRequestId();
+  request.headers.set(REQUEST_ID_HEADER, requestId);
+  const fields = {
+    method: request.method,
+    path: new URL(request.url).pathname,
+    request_id: requestId,
+  };
+  const started = performance.now();
+  let response: Response;
+  try {
+    response = await fetch(request);
+  } catch (error) {
+    // A cancelled query (the page moved on) isn't a failure.
+    if (!isAbort(error)) {
+      const failed = { ...fields, network: true, duration_ms: msSince(started) };
+      log.warn("api.request_failed", failed, error);
+    }
+    throw error;
+  }
+  const done = { ...fields, status: response.status, duration_ms: msSince(started) };
+  log.debug("api.request", done);
+  if (response.status >= 500) {
+    log.warn("api.request_failed", { ...done, code: errorCode(await readJson(response.clone())) });
+  }
+  return response;
+}
+
+function msSince(started: number): number {
+  return Math.round(performance.now() - started);
 }
 
 export const api = createClient<paths>({ baseUrl: apiOrigin(), fetch: authFetch });
@@ -90,7 +130,7 @@ export async function clearRefreshCookie(): Promise<void> {
   try {
     await api.POST("/api/auth/logout");
   } catch (error) {
-    console.warn("Couldn't delete the refresh cookie", error);
+    log.warn("auth.logout_cookie_clear_failed", {}, error);
   }
 }
 
@@ -103,7 +143,7 @@ async function readJson(response: Response): Promise<unknown> {
   try {
     return await response.json();
   } catch {
-    // A 401 without a JSON body has no code; it is handled like any other 401.
+    // A body that isn't JSON (a proxy's error page, for example) has no code.
     return null;
   }
 }

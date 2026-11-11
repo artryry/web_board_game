@@ -1,25 +1,25 @@
 import asyncio
-import logging
 from collections.abc import Awaitable
 
 from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.logging_config import get_logger
 from app.schemas.health import HealthResponse
 from app.storage.client import S3Client, bucket_exists
 
-logger = logging.getLogger(__name__)
+log = get_logger(__name__)
 
 
 async def _probe(name: str, check: Awaitable[object], timeout_s: float) -> bool:
     try:
         result = await asyncio.wait_for(check, timeout_s)
     except Exception:
-        logger.exception("Health check failed: %s", name)
+        log.warning("health.check_failed", check=name, exc_info=True)
         return False
     if result is False:
-        logger.warning("Health check failed: %s returned False", name)
+        log.warning("health.check_failed", check=name, reason="returned_false")
         return False
     return True
 

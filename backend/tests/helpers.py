@@ -11,25 +11,27 @@ from app.core.config import Settings
 PUBLIC_BASE_URL = "https://art.test"
 
 
-def make_settings() -> Settings:
-    """Settings with fixed, fake values, so tests never depend on the local .env."""
-    return Settings(
-        database_url=SecretStr("postgresql+asyncpg://test:test@localhost:5432/test"),
-        redis_url="redis://localhost:6379/0",
-        redis_password=SecretStr("test"),
-        r2_endpoint=HttpUrl("https://test.r2.cloudflarestorage.com"),
-        r2_access_key_id="test",
-        r2_secret_access_key=SecretStr("test"),
-        r2_bucket="test-bucket",
-        r2_public_base_url=HttpUrl(PUBLIC_BASE_URL),
-        jwt_secret=SecretStr("test-jwt-secret-that-is-at-least-32-chars"),
-        jwt_algorithm="HS256",
-        access_token_ttl_min=15,
-        refresh_token_ttl_days=30,
-        refresh_cookie_secure=True,
-        upload_max_bytes=2 * 1024 * 1024,
-        upload_url_ttl_s=300,
-    )
+def make_settings(**overrides: Any) -> Settings:
+    """Settings with fixed, fake values, so tests never depend on the local .env. `overrides`
+    replace single values, as raw input (for example `log_level="debug"`)."""
+    values: dict[str, Any] = {
+        "database_url": SecretStr("postgresql+asyncpg://test:test@localhost:5432/test"),
+        "redis_url": "redis://localhost:6379/0",
+        "redis_password": SecretStr("test"),
+        "r2_endpoint": HttpUrl("https://test.r2.cloudflarestorage.com"),
+        "r2_access_key_id": "test",
+        "r2_secret_access_key": SecretStr("test"),
+        "r2_bucket": "test-bucket",
+        "r2_public_base_url": HttpUrl(PUBLIC_BASE_URL),
+        "jwt_secret": SecretStr("test-jwt-secret-that-is-at-least-32-chars"),
+        "jwt_algorithm": "HS256",
+        "access_token_ttl_min": 15,
+        "refresh_token_ttl_days": 30,
+        "refresh_cookie_secure": True,
+        "upload_max_bytes": 2 * 1024 * 1024,
+        "upload_url_ttl_s": 300,
+    }
+    return Settings(**(values | overrides))
 
 
 @dataclass(frozen=True)
@@ -149,3 +151,14 @@ async def share(client: AsyncClient, user: AuthedUser, path: str) -> str:
     assert response.status_code == 200, response.text
     code: str = response.json()["share_code"]
     return code
+
+
+def logged(entries: list[dict[str, Any]], event: str) -> list[dict[str, Any]]:
+    """The captured log entries (the `logs` fixture) with this event name."""
+    return [entry for entry in entries if entry["event"] == event]
+
+
+def access_line(entries: list[dict[str, Any]], path: str) -> dict[str, Any]:
+    """The one access line logged for `path`."""
+    (line,) = [entry for entry in logged(entries, "http.request") if entry["path"] == path]
+    return line

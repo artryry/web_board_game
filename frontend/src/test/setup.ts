@@ -1,10 +1,11 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup, configure } from "@testing-library/react";
-import { afterAll, afterEach, beforeAll } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach } from "vitest";
 
 import { endSession } from "@/auth/tokens";
 
 import { resetContentStore } from "./contentStore";
+import { captureLogs } from "./logCapture";
 import { server } from "./server";
 
 // A page waits for the session, the catalog and its lists before it renders; 1 s (the default
@@ -32,6 +33,11 @@ URL.revokeObjectURL = () => undefined;
 // A request without a handler fails the test, so nothing reaches a real network.
 beforeAll(() => {
   server.listen({ onUnhandledFrame: "error" });
+});
+
+// Log entries go to a list the test can check (test/logCapture.ts), not to the console.
+beforeEach(() => {
+  captureLogs();
 });
 
 afterEach(() => {

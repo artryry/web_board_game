@@ -9,8 +9,12 @@ from app.api.router import api_router
 from app.core.config import get_settings
 from app.core.db import create_engine, create_session_factory
 from app.core.errors import register_error_handlers
+from app.core.logging_config import configure_logging, get_logger
+from app.core.middleware import RequestContextMiddleware
 from app.frontend import mount_frontend
 from app.storage.client import create_s3_client
+
+log = get_logger(__name__)
 
 
 @asynccontextmanager
@@ -35,7 +39,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
         app.state.s3 = await stack.enter_async_context(create_s3_client(settings))
 
+        log.info(
+            "app.started",
+            log_level=settings.log_level,
+            log_format=settings.log_format,
+            commit=settings.render_git_commit,
+        )
         yield
+        log.info("app.stopped")
 
 
 def create_app(frontend_dist_dir: Path | None = None) -> FastAPI:
@@ -48,6 +59,7 @@ def create_app(frontend_dist_dir: Path | None = None) -> FastAPI:
         redoc_url=None,
     )
     register_error_handlers(app)
+    app.add_middleware(RequestContextMiddleware)
     app.include_router(api_router)
     # After the API routes, so the frontend's catch-all never shadows them.
     if frontend_dist_dir is not None:
@@ -55,4 +67,6 @@ def create_app(frontend_dist_dir: Path | None = None) -> FastAPI:
     return app
 
 
+# Once per process, before the app exists (see configure_logging).
+configure_logging(get_settings())
 app = create_app(get_settings().frontend_dist_dir)

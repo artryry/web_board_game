@@ -1,6 +1,6 @@
 import type { FieldValues, Path, UseFormSetError } from "react-hook-form";
 
-import { ApiError } from "./errors";
+import { ApiError, errorMessage } from "./errors";
 
 /**
  * Shows a failed submit on the form: on its field when the error belongs to one of `fields`,
@@ -34,5 +34,6 @@ export function showServerError<T extends FieldValues>(
     setError(field, { type: "server", message });
     shown = true;
   }
-  if (!shown) setError("root.server", { message: error.message });
+  // errorMessage adds the error ID to a server error.
+  if (!shown) setError("root.server", { message: errorMessage(error) });
 }

@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from http.cookies import Morsel, SimpleCookie
+from typing import Any
 from unittest.mock import ANY
 from uuid import UUID, uuid4
 
@@ -11,6 +12,7 @@ from app.api.auth import REFRESH_COOKIE, REFRESH_COOKIE_PATH
 from app.core.config import Settings
 from app.core.security import TokenType, create_access_token, create_refresh_token, decode_token
 from app.services import auth_service
+from tests.helpers import access_line, logged
 
 USERNAME = "alice"
 EMAIL = "alice@example.com"
@@ -306,3 +308,29 @@ async def test_me_rejects_refresh_token(client: AsyncClient) -> None:
     response = await client.get("/api/auth/me", headers={"Authorization": f"Bearer {refresh}"})
 
     _assert_error(response, 401, "token_wrong_type")
+
+
+# --- logging ---
+
+
+async def test_register_and_login_are_logged_without_secrets(
+    client: AsyncClient, settings: Settings, logs: list[dict[str, Any]]
+) -> None:
+    user_id = await _registered_user_id(client, settings)
+    login = await client.post("/api/auth/login", json={"email": EMAIL, "password": PASSWORD})
+
+    assert login.status_code == 200
+    assert [line["user_id"] for line in logged(logs, "auth.registered")] == [user_id]
+    assert [line["user_id"] for line in logged(logs, "auth.logged_in")] == [user_id]
+    assert PASSWORD not in str(logs)
+    assert login.json()["access"] not in str(logs)
+
+
+async def test_a_failed_login_shows_its_code_on_the_access_line(
+    client: AsyncClient, logs: list[dict[str, Any]]
+) -> None:
+    await client.post("/api/auth/login", json={"email": EMAIL, "password": PASSWORD})
+
+    line = access_line(logs, "/api/auth/login")
+    assert (line["status"], line["error_code"]) == (401, "invalid_credentials")
+    assert not logged(logs, "auth.logged_in")

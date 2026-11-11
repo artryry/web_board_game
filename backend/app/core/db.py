@@ -24,7 +24,11 @@ class Base(DeclarativeBase):
 
 
 def create_engine(settings: Settings) -> AsyncEngine:
-    return create_async_engine(settings.database_url.get_secret_value(), pool_pre_ping=True)
+    # hide_parameters keeps the values out of database error messages, which end up in the logs
+    # (a failed insert into users would otherwise print the email and the password hash).
+    return create_async_engine(
+        settings.database_url.get_secret_value(), pool_pre_ping=True, hide_parameters=True
+    )
 
 
 def create_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:

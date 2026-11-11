@@ -56,6 +56,7 @@ Deployment is set up (2026-11-10, see §10.1):
 | Live state | Redis (`redis.asyncio`) |
 | File storage | Cloudflare R2 through its S3 API with `aioboto3` (async), using presigned URLs. Card art is read from the bucket's public URL (custom domain or r2.dev). |
 | Auth | `pwdlib[argon2]` for password hashing, `PyJWT` for access and refresh tokens |
+| Logging | `structlog` on top of stdlib `logging`: events with fields, coloured lines in dev, JSON lines in production (§10.2) |
 | Tests | pytest, pytest-asyncio, httpx |
 | Process model | uvicorn with **one worker** in v1, so room locks can stay in-process (see §13 for scaling) |
 | Hosting | One Render web service (Docker) that also serves the built frontend; Neon (Postgres), Upstash (Redis), R2 (art). See §10.1. |
@@ -72,13 +73,16 @@ backend/
       errors.py        AppError / UnauthorizedError + handlers ({"detail": {code, message}})
       security.py      password hashing, JWT encode/decode
       db.py            Base (with constraint naming convention), async engine + session factory
-      deps.py          get_db, get_redis, get_s3, get_current_user (CurrentUser)
+      deps.py          get_db, get_redis, get_s3, get_current_user (CurrentUser), get_optional_user_id
       codes.py         random share and room codes from a no-look-alike alphabet
+      logging_config.py  configure_logging, get_logger, redaction, StepTimer (§10.2)
+      middleware.py    RequestContextMiddleware: request ids, the access line, unhandled errors
     models/            SQLAlchemy ORM: user, origin, card, card_group, deck, share_code, ruleset, game
     schemas/           Pydantic request/response DTOs
       rules.py         RulesetDefinition (versioned)
     api/               router.py (mounts everything under /api) + routers: health, auth, catalog,
-                       origins, cards, card_groups, decks, rulesets, share, rooms, games, uploads
+                       origins, cards, card_groups, decks, rulesets, share, rooms, games, uploads,
+                       client_logs
     storage/           R2 (S3 API) client, presigned PUT, object key naming
     engine/            PURE game logic: no DB, no Redis, no network (see §7)
       registry.py      module registry + decorators
@@ -103,6 +107,7 @@ backend/
       upload_service.py   presigned art uploads, art-key checks on save
       room_service.py  room lifecycle: Redis <-> engine glue, timers
       share_service.py share codes, forking imports
+      client_log_service.py  the browser's warnings and errors as `web.*` lines, rate-limited
     ws/
       manager.py       connections per room, per-player send
       protocol.py      message schemas
@@ -373,6 +378,11 @@ The OpenAPI schema is at `/api/openapi.json` and the Swagger UI at `/api/docs` (
 | Rooms | `POST /api/rooms {ruleset_id}` → `{code}` (6 characters, no look-alike characters), `POST /api/rooms/join {code}`, `GET /api/rooms/{code}` |
 | History | `GET /api/games`, `GET /api/games/{id}` (with everything needed for a replay) |
 | Health | `GET /api/health` |
+| Client logs | `POST /api/client-logs {entries: [...]}` → 204. The browser's warnings and errors, logged as `web.<event>` lines. The access token is optional (it adds the user), and entries over the rate limit are dropped (§10.2). |
+
+**Request ids:** every response carries `X-Request-ID`. The server keeps an incoming one that matches `^[A-Za-z0-9-]{8,64}$` (the browser sends one per request) and otherwise makes its own; every log line of the request carries it (§10.2).
+
+**Unhandled exceptions** answer 500 with `{"detail": {"code": "internal_error", "message": "Something went wrong.", "request_id": "…"}}`, so a user's report can be matched to its log line.
 
 Auth errors (every `401` carries `WWW-Authenticate: Bearer`):
 
@@ -455,6 +465,8 @@ Content errors:
 | 422 | `deck_too_large` | more than 60 cards in total (a copy count outside 1–4 gets FastAPI's default 422) |
 | 422 | `unsupported_art_type` / `art_too_large` | upload request with a type other than png/jpeg/webp, or over `UPLOAD_MAX_BYTES` (nothing is signed) |
 | 422 | `invalid_art_key` | a saved art key that isn't under `{card-art\|origin-art}/{user_id}/`, wasn't uploaded, or whose object is too large or of the wrong type (checked with `HEAD`, only when the key changes) |
+| 413 | `payload_too_large` | a client-log batch over 64 KiB (`Content-Length`) |
+| 500 | `internal_error` | an unhandled exception; the body also has `request_id` |
 
 Malformed bodies and out-of-bounds values (for example `mana_cost` 11) still get FastAPI's default 422 body.
 
@@ -473,6 +485,8 @@ create (host) ──► lobby ──(guest joins by code)──► lobby (2 play
 
 ### 9.2 WebSocket
 Connect with `WS /ws/rooms/{code}?token=<access token>`. Every message has the form `{ "type": ..., "seq": n, "payload": {...} }`.
+
+The token in the URL never reaches the logs: the access line leaves out query strings, and a filter strips them from uvicorn's handshake lines (§10.2). Moving the token out of the URL (into the first message, or a one-time ticket) is still open for M6.
 
 | Direction | Type | Payload |
 |---|---|---|
@@ -533,6 +547,33 @@ Agreed 2026-11-10. Railway, Render Starter and a Hetzner VPS were considered and
   - the service sleeps after 15 minutes without traffic (WebSocket messages count as traffic), and the first request then waits up to about a minute
   - in-process room locks and turn timers (§9.3) are lost when it sleeps or redeploys, while room state in Redis survives. M6 has to restore timers from the stored deadline, or the app moves to an always-on plan.
 
+### 10.2 Logging
+
+Agreed and built 2026-11-11. Reading the logs is in [deployment.md](deployment.md); the full design and the event list are in the logging feature's record (sessions/session_2026-11-11_logging.md).
+
+- **One shape for every line:** `ts` (UTC), `level`, `event`, `logger`, then `request_id` and `user_id` during a request, then the event's own fields. Our code logs through `structlog` (`get_logger(__name__)`, loggers under `app.`); uvicorn, Alembic and SQLAlchemy lines go through the same formatter (`core/logging_config.py`).
+- **Format and level:** `LOG_FORMAT` is `auto` (coloured lines in a terminal, JSON otherwise), `console` or `json`; Render sets `json`. `LOG_LEVEL` applies to `app.*` only: the root stays at WARNING, so third-party DEBUG output (botocore's has signed headers) never shows.
+- **Set up once per process:** at import of `app.main` and in `alembic/env.py`, never in `create_app()` (the tests build an app per test).
+- **Events** are named `<area>.<what_happened>` with the details as fields, never formatted into the text.
+- **Levels:** DEBUG for detail (off in production); INFO for normal events, including 4xx answers; WARNING for the unexpected but handled; ERROR for bugs and outages, always with the traceback.
+- **The access line** (`core/middleware.py`, a plain ASGI middleware): one `http.request` per request, with `method`, `path` (never the query string), `route` (the template), `status`, `duration_ms`, `user_id`, `error_code` and `client_ip`.
+  - ERROR for a 5xx, WARNING over 1 s, INFO otherwise.
+  - DEBUG below 400 for `/api/health/live`, `/api/client-logs` and everything outside `/api` and `/ws`.
+  - uvicorn's own access log is off.
+- **Unhandled exceptions:** the middleware answers the JSON 500 (§8) and its access line carries the traceback. Nothing re-raises, so the traceback is printed once. A WebSocket closes with 1011.
+- **Service events** are logged only where they add facts the access line lacks:
+  - `app.started` and `app.stopped`
+  - `auth.registered` and `auth.logged_in`
+  - `upload.ticket_issued`, and `upload.art_checked` (DEBUG)
+  - `share.created`, `share.revoked`, `share.imported`, `share.code_retry` (DEBUG), and `share.import_step` (DEBUG, one per step with its duration, through `StepTimer`)
+  - `health.check_failed` and `client_logs.dropped`
+- **A caught exception that the request survives** is logged: WARNING when it's unexpected, DEBUG for a normal race.
+- **Never logged:** passwords and hashes, tokens, the `Authorization`, `Cookie` and `Set-Cookie` headers, presigned URLs, secrets, emails, request and response bodies, query strings, and traceback locals. A redaction step replaces secret-looking keys at any depth and scrubs JWTs, `token=` values, `X-Amz-*` signatures and `user:pass@` in URLs, also inside tracebacks. The engine runs with `hide_parameters=True`.
+- **The engine never logs** (`tests/engine/test_no_logging.py`); the services that run it log its outcomes.
+- **Background tasks (M6)** start with an empty log context (`asyncio.create_task(..., context=contextvars.Context())`), bind their own `room_code` and `game_id`, and run through a wrapper that logs their exception at ERROR.
+- **WebSocket events (M6):** a socket lasts a whole game, so it logs per message: `ws.connected`, `ws.closed` (duration, close code), `game.started`, `game.ended`, `game.action_rejected` (INFO, with the reason), `game.action_applied` (DEBUG), `timer.expired` and `ws.resync`, each with `room_code` and `game_id`.
+- **Browser logs:** `POST /api/client-logs` (§8) writes each entry on `app.client` as `web.<event>`, with `source="web"`, the page, the browser's time, its `context` and `breadcrumbs` nested, and the user from a valid token (decoded only, no database query). The limit is kept in process (one worker): 60 entries a minute per user or IP, and 600 overall.
+
 ## 11. Milestones
 
 | # | Milestone | Done when |
@@ -567,7 +608,7 @@ The frontend milestones (F0–F6) in [frontend_plan.md](frontend_plan.md) are de
 - **Spectators and replays** need little extra work given the seed and action log.
 - **Scaling beyond one worker:** move room locks to Redis (`SET NX` with an expiry) and send room messages through Redis pub/sub, so any worker can serve any socket.
 - **Moderation:** uploaded art is public. Check type and size (and later, image dimensions), and add a "report" endpoint.
-- **Rate limiting** on auth and upload endpoints (for example `slowapi`).
+- **Rate limiting** on auth and upload endpoints (for example `slowapi`). `POST /api/client-logs` already has its own in-process limit (§10.2).
 
 ## 14. Resolved questions
 

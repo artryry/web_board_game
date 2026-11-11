@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import { ART_MAX_BYTES } from "@/api/bounds";
 import { R2_TEST_ORIGIN } from "@/test/contentHandlers";
 import { addCard, ART_PUBLIC_ORIGIN, contentStore, lastBody } from "@/test/contentStore";
+import { logged } from "@/test/logCapture";
 import { renderApp, saveSession } from "@/test/renderApp";
 import { server } from "@/test/server";
 
@@ -82,6 +83,10 @@ describe("ArtUpload", () => {
       await screen.findByText("The image upload failed (HTTP 500). Try again."),
     ).toBeInTheDocument();
     expect(screen.queryByAltText("Card art preview")).not.toBeInTheDocument();
+    // Logged with the status and the file, never the signed upload URL.
+    const [entry] = logged("upload.put_failed");
+    expect(entry?.fields).toMatchObject({ kind: "card", status: 500, content_type: "image/png" });
+    expect(JSON.stringify(entry)).not.toContain("/upload/");
     await user.click(screen.getByRole("button", { name: "Create card" }));
     await waitFor(() => {
       expect(lastBody("POST", "/api/cards")).toMatchObject({ art_key: null });

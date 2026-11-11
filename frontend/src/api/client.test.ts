@@ -1,5 +1,5 @@
 import { http, HttpResponse } from "msw";
-import { describe, expect, it, onTestFinished, vi } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 
 import {
   endSession,
@@ -17,6 +17,7 @@ import {
   TEST_PASSWORD,
   TEST_USER,
 } from "@/test/handlers";
+import { logged } from "@/test/logCapture";
 import { server } from "@/test/server";
 
 import { api, clearRefreshCookie } from "./client";
@@ -186,14 +187,119 @@ describe("api client", () => {
     expect(logouts.logout).toBe(1);
   });
 
-  it("doesn't throw when the cookie can't be deleted", async () => {
+  it("doesn't throw when the cookie can't be deleted, and logs it", async () => {
     server.use(http.post(apiUrl("/api/auth/logout"), () => HttpResponse.error()));
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    onTestFinished(() => {
-      warn.mockRestore();
-    });
 
     await expect(clearRefreshCookie()).resolves.toBeUndefined();
-    expect(warn).toHaveBeenCalledOnce();
+    const [entry] = logged("auth.logout_cookie_clear_failed");
+    expect(entry?.level).toBe("warn");
+    expect(entry?.error?.name).toBe("TypeError");
+  });
+});
+
+describe("api client logging", () => {
+  function recordRequestIds() {
+    const ids: (string | null)[] = [];
+    server.use(
+      http.get(apiUrl("/api/auth/me"), ({ request }) => {
+        ids.push(request.headers.get("X-Request-ID"));
+        return HttpResponse.json(TEST_USER);
+      }),
+    );
+    return ids;
+  }
+
+  it("sends a new request id with every request and logs each call", async () => {
+    storeAccessToken(FIRST_ACCESS);
+    const ids = recordRequestIds();
+
+    await api.GET("/api/auth/me");
+    await api.GET("/api/auth/me");
+
+    expect(ids).toHaveLength(2);
+    expect(new Set(ids).size).toBe(2);
+    const calls = logged("api.request");
+    expect(calls.map((entry) => entry.fields)).toEqual(
+      ids.map((id) => ({
+        method: "GET",
+        path: "/api/auth/me",
+        request_id: id,
+        status: 200,
+        duration_ms: expect.any(Number) as number,
+      })),
+    );
+    expect(calls.every((entry) => entry.level === "debug")).toBe(true);
+  });
+
+  it("gives a retry after a token refresh its own request id", async () => {
+    storeAccessToken(EXPIRED_ACCESS);
+    const ids: (string | null)[] = [];
+    mockExpiringApi();
+    server.events.on("request:start", ({ request }) => {
+      if (new URL(request.url).pathname === "/api/auth/me") {
+        ids.push(request.headers.get("X-Request-ID"));
+      }
+    });
+    onTestFinished(() => {
+      server.events.removeAllListeners();
+    });
+
+    await api.GET("/api/auth/me");
+
+    expect(ids).toHaveLength(2);
+    expect(ids[0]).not.toBe(ids[1]);
+  });
+
+  it("logs a server error as a warning with its code and request id", async () => {
+    storeAccessToken(FIRST_ACCESS);
+    const sent: (string | null)[] = [];
+    server.use(
+      http.get(apiUrl("/api/auth/me"), ({ request }) => {
+        sent.push(request.headers.get("X-Request-ID"));
+        return apiError(500, "internal_error");
+      }),
+    );
+
+    await api.GET("/api/auth/me");
+
+    const [entry] = logged("api.request_failed");
+    expect(entry?.level).toBe("warn");
+    expect(entry?.fields).toMatchObject({
+      status: 500,
+      code: "internal_error",
+      path: "/api/auth/me",
+      request_id: sent[0],
+    });
+  });
+
+  it("logs a network failure as a warning", async () => {
+    storeAccessToken(FIRST_ACCESS);
+    server.use(http.get(apiUrl("/api/auth/me"), () => HttpResponse.error()));
+
+    await expect(api.GET("/api/auth/me")).rejects.toThrow();
+
+    const [entry] = logged("api.request_failed");
+    expect(entry?.fields).toMatchObject({ network: true, method: "GET", path: "/api/auth/me" });
+    expect(entry?.error?.name).toBe("TypeError");
+  });
+
+  it("doesn't log a 4xx answer as a failure", async () => {
+    server.use(http.get(apiUrl("/api/auth/me"), () => apiError(404, "not_found")));
+    storeAccessToken(FIRST_ACCESS);
+
+    await api.GET("/api/auth/me");
+
+    expect(logged("api.request_failed")).toEqual([]);
+    expect(logged("api.request")[0]?.fields.status).toBe(404);
+  });
+
+  it("doesn't log a cancelled request", async () => {
+    storeAccessToken(FIRST_ACCESS);
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(api.GET("/api/auth/me", { signal: controller.signal })).rejects.toThrow();
+
+    expect(logged("api.request_failed")).toEqual([]);
   });
 });

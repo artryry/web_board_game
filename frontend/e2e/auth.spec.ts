@@ -26,8 +26,15 @@ test("register, log out, log in and log out again", async ({ page }) => {
 
   await page.getByLabel("Email").fill(account.email);
   await page.getByLabel("Password").fill(account.password);
+  const login = page.waitForResponse((response) => response.url().endsWith("/api/auth/login"));
   await page.getByRole("button", { name: "Log in" }).click();
   await expect(dashboardHeading(page, account.username)).toBeVisible();
+
+  // The browser's request id goes through nginx and comes back, so both sides log the same id.
+  const answer = await login;
+  const sentId = await answer.request().headerValue("X-Request-ID");
+  expect(sentId).toMatch(/^[0-9a-f-]{32,36}$/);
+  expect(await answer.headerValue("X-Request-ID")).toBe(sentId);
 
   // A reload keeps the session.
   await page.reload();

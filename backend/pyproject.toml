@@ -9,7 +9,8 @@ target-version = "py312"
 extend-exclude = ["venv"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "ASYNC"]
+# T20: no print(), log instead. G and LOG: logging calls take fields, not formatted strings.
+select = ["E", "F", "I", "UP", "B", "ASYNC", "T20", "G", "LOG"]
 
 # The local alembic/ folder would otherwise make ruff treat the alembic package as first-party.
 [tool.ruff.lint.isort]

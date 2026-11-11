@@ -1,4 +1,5 @@
 from collections.abc import AsyncIterator
+from typing import Any
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -6,7 +7,7 @@ from httpx import ASGITransport, AsyncClient
 from app.core.config import get_settings
 from app.core.deps import get_db, get_redis, get_s3
 from app.main import create_app
-from tests.helpers import make_settings
+from tests.helpers import access_line, logged, make_settings
 
 
 class FakeSession:
@@ -39,7 +40,7 @@ async def _client(redis_healthy: bool) -> AsyncIterator[AsyncClient]:
     app.dependency_overrides[get_db] = fake_db
     app.dependency_overrides[get_redis] = lambda: FakeRedis(redis_healthy)
     app.dependency_overrides[get_s3] = FakeS3
-    app.dependency_overrides[get_settings] = make_settings
+    app.dependency_overrides[get_settings] = lambda: make_settings()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         yield client
 
@@ -83,3 +84,14 @@ async def test_health_degraded_when_redis_down(redis_down_client: AsyncClient) -
         "redis": False,
         "storage": True,
     }
+
+
+async def test_a_failed_check_is_a_warning(
+    redis_down_client: AsyncClient, logs: list[dict[str, Any]]
+) -> None:
+    await redis_down_client.get("/api/health")
+
+    (line,) = logged(logs, "health.check_failed")
+    assert (line["check"], line["log_level"]) == ("redis", "warning")
+    assert line["exc_info"] is True
+    assert access_line(logs, "/api/health")["log_level"] == "error"

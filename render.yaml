@@ -35,3 +35,6 @@ services:
         sync: false
       - key: JWT_SECRET
         generateValue: true
+      # One JSON object per line in Render's log viewer (context/deployment.md, Reading the logs).
+      - key: LOG_FORMAT
+        value: json

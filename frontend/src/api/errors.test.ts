@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ApiError, unwrap } from "./errors";
+import { ApiError, errorMessage, unwrap } from "./errors";
 
 describe("ApiError.fromBody", () => {
   it("reads our error body, keeping the extra fields", () => {
@@ -52,6 +52,47 @@ describe("unwrap", () => {
 
     expect(() => unwrap({ error, response })).toThrow(
       expect.objectContaining({ code: "username_taken", status: 409 }),
+    );
+  });
+
+  it("keeps the answer's request id", () => {
+    const response = new Response(null, {
+      status: 500,
+      headers: { "X-Request-ID": "3f2a9c1e-4b7d-4e3b-8a7c-1d2e3f4a5b6c" },
+    });
+    const error = { detail: { code: "internal_error", message: "Something went wrong." } };
+
+    expect(() => unwrap({ error, response })).toThrow(
+      expect.objectContaining({ requestId: "3f2a9c1e-4b7d-4e3b-8a7c-1d2e3f4a5b6c" }),
+    );
+  });
+});
+
+describe("errorMessage", () => {
+  const requestId = "3f2a9c1e-4b7d-4e3b-8a7c-1d2e3f4a5b6c";
+
+  it("ends a server error with its error ID", () => {
+    const error = ApiError.fromBody(
+      500,
+      { detail: { code: "internal_error", message: "Something went wrong." } },
+      requestId,
+    );
+
+    expect(errorMessage(error)).toBe("Something went wrong. (error ID: 3f2a9c1e)");
+  });
+
+  it("leaves other answers as they are", () => {
+    const conflict = ApiError.fromBody(
+      409,
+      { detail: { code: "in_use", message: "In use" } },
+      requestId,
+    );
+    const noId = ApiError.fromBody(502, "Bad Gateway");
+
+    expect(errorMessage(conflict)).toBe("In use");
+    expect(errorMessage(noId)).toBe("The request failed (HTTP 502).");
+    expect(errorMessage(new TypeError("Failed to fetch"))).toBe(
+      "Can't reach the server. Try again.",
     );
   });
 });

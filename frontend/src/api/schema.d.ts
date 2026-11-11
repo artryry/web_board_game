@@ -135,6 +135,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/client-logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Post Client Logs
+         * @description Writes the browser's warnings and errors to the server log as `web.<event>` lines.
+         *
+         *     Works with or without a valid access token. Entries over the rate limit are dropped, and
+         *     the answer is 204 either way, so the browser never retries.
+         */
+        post: operations["post_client_logs_api_client_logs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/catalog": {
         parameters: {
             query?: never;
@@ -615,6 +638,75 @@ export interface components {
             origin_colors: components["schemas"]["OriginColorOut"][];
             /** Origin Icons */
             origin_icons: ("circle" | "leaf" | "flame" | "waves" | "mountain" | "sun" | "moon" | "snowflake" | "skull" | "zap" | "shield" | "crown" | "star" | "droplet" | "wind" | "sparkles")[];
+        };
+        /**
+         * ClientBreadcrumb
+         * @description One of the steps the browser took before an error: a page view, an API call, ...
+         */
+        ClientBreadcrumb: {
+            /**
+             * Ts
+             * Format: date-time
+             */
+            ts: string;
+            /**
+             * Level
+             * @enum {string}
+             */
+            level: "debug" | "info" | "warn" | "error";
+            /** Event */
+            event: string;
+            /**
+             * Context
+             * @default {}
+             */
+            context: {
+                [key: string]: string | number | boolean | null;
+            };
+        };
+        /**
+         * ClientLogBatch
+         * @description Warnings and errors from the browser, sent in batches by its logger.
+         */
+        ClientLogBatch: {
+            /** Entries */
+            entries: components["schemas"]["ClientLogEntry"][];
+        };
+        /** ClientLogEntry */
+        ClientLogEntry: {
+            /**
+             * Level
+             * @enum {string}
+             */
+            level: "warn" | "error";
+            /** Event */
+            event: string;
+            /**
+             * Message
+             * @default
+             */
+            message: string;
+            /** Stack */
+            stack?: string | null;
+            /** Page */
+            page: string;
+            /**
+             * Client Ts
+             * Format: date-time
+             */
+            client_ts: string;
+            /**
+             * Context
+             * @default {}
+             */
+            context: {
+                [key: string]: string | number | boolean | null;
+            };
+            /**
+             * Breadcrumbs
+             * @default []
+             */
+            breadcrumbs: components["schemas"]["ClientBreadcrumb"][];
         };
         /**
          * CostSpec
@@ -1249,6 +1341,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UserOut"];
+                };
+            };
+        };
+    };
+    post_client_logs_api_client_logs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClientLogBatch"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

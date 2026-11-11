@@ -1,333 +1,531 @@
-# Current feature: F1 — Catalog, SchemaForm, origin and card editors, card library, art upload
+# Current feature: Logging — structured logs in the backend and the frontend
 
-**Status:** done, not committed yet. Spec written, planned and implemented 2026-11-10, on branch `f1-catalog` (from `master` at `d78c24f`, F0). See [sessions/session_2026-11-10.md](sessions/session_2026-11-10.md).
-**Plan reference:** [frontend_plan.md §0, §3 (origins and cards), §4.0, §4.1, §7 (F1) and §8](frontend_plan.md); [backend_plan.md §4 (origins, cards, card groups), §5 (catalog and the SchemaForm contract), §7.8 (cost suggestion) and §8 (endpoints, errors, PATCH rules, paging)](backend_plan.md); [coding-standards.md §3](coding-standards.md)
-**Depends on:** F0 (done, merged into `master`) and M2 (done). M3 is done too.
-**Unblocks:** F2 (deck builder, share dialog for decks and card groups, import page).
+**Status:** built 2026-11-11 on branch `logging` (from `master` at `0ff34e9`), not committed yet. Backend and frontend checks pass. Still to do: the e2e run and the checks by hand, blocked because the local `.env` points at the production services (see Open questions). See [sessions/session_2026-11-11_logging.md](sessions/session_2026-11-11_logging.md).
+**Plan reference:** [backend_plan.md §3, §8, §9.2 and §10](backend_plan.md) (a new §10.2 Logging), [frontend_plan.md §2 and §6](frontend_plan.md), [coding-standards.md](coding-standards.md), [deployment.md](deployment.md)
+**Depends on:** M3, F1 and the deployment (all done).
+**Unblocks:** M6 and F4–F5, which log rooms, sockets and games through it. Production problems can be traced from a user's error message to the server's log line.
 
 ## Goal
-A logged-in user can build the content of their game:
-- **origins**: create, edit, duplicate and delete them, with a colour, an icon, an optional background image and up to 3 field effects
-- **cards**: create, edit and delete creatures and spells, with abilities or an effect, art, and a cost suggestion that updates as they type
-- **card library**: sort cards into groups, filter them, and see each card's balance label
+Both the backend and the frontend write logs that are structured (named fields, not sentences) and easy to read:
+- **Backend:**
+  - one line per request
+  - the request id and user id on every line
+  - a traceback for every crash
+  - coloured lines in dev, JSON lines in production
+- **Frontend:**
+  - a small logger instead of `console.*`
+  - API, React and window errors caught in one place
+  - in production, warnings and errors sent to the backend, so they show up in Render's logs next to the API's lines
+- **One request id** links a browser error, the API's access line and any service line from the same request.
 
-F1 also builds what F2–F5 reuse:
-- `useCatalog` and `SchemaForm`
-- `ui/CardFrame` (how a card looks, on the board too)
-- the origin colour and icon helpers
-- `ArtUpload`
-- `ui/Modal`
-- the cost formula
+## How it works
+
+### The flow
+```
+Browser                                    API (one uvicorn worker)                      stdout
+log.warn / log.error ─┬─ console sink
+                      └─ remote sink (prod) ─► POST /api/client-logs ─► "web.<event>" ─┐
+authFetch, X-Request-ID ────────────────────► RequestContextMiddleware                  │
+                                               ├ binds request_id                      ├─► structlog ─► coloured lines (dev)
+                                               ├ get_current_user binds user_id        │               JSON lines (prod) ─► Render → Logs
+                                               ├ service events ("share.imported") ────┤
+                                               └ one access line ("http.request") ─────┘
+uvicorn, Alembic, SQLAlchemy (stdlib logging) ───────────────────────────────────────────┘
+```
+
+### A log line
+Every backend line is one **event** plus fields:
+- **always:** `ts` (UTC, ISO 8601), `level`, `event`, `logger`
+- **during a request:** `request_id`, and `user_id` once the user is known
+- **then:** the event's own fields
+
+Production (JSON, one object per line):
+```json
+{"ts":"2026-11-11T10:15:02.123Z","level":"info","event":"http.request","logger":"app.access","request_id":"3f2a9c1e4b7d…","user_id":"8b1d…","method":"POST","path":"/api/cards","route":"/api/cards","status":409,"error_code":"card_in_use","duration_ms":14}
+```
+Dev (structlog's console renderer) shows the same fields on one coloured line: time, level, event, then `key=value` pairs.
+
+### Event names and levels
+- **Names** follow `<area>.<what_happened>` in snake_case, for example `http.request`, `auth.registered`, `share.imported` and `upload.ticket_issued`.
+- **Details go in fields, never in the message.** Write `log.info("share.imported", kind="deck", cards=12)`, not an f-string.
+
+| Level | When | Examples |
+|---|---|---|
+| DEBUG | Detail for development; off in production | health-probe and static-file access lines; a 4xx in the browser |
+| INFO | Normal, notable events | every API request, a user registered, a share imported, the app started |
+| WARNING | Unexpected but handled | a failed health check, a request slower than 1 s, browser logs dropped by the rate limit, a network error in the browser |
+| ERROR | A bug or an outage, always with a traceback or stack | an unhandled exception (500), a render error in the browser |
+
+A 4xx is an expected answer, not an error. It shows as INFO on the access line, with its `error_code`.
+
+### When one line per request isn't enough
+For the REST API, the access line plus the traceback finds most problems:
+- a crash gives an ERROR line with the traceback and the request id
+- a rejected request gives an INFO line with its `error_code`
+- the service events record what was created or imported
+
+Four cases need more:
+1. **A failure the request survives gets its own line.**
+   - Code that catches an exception and carries on (a retry, a fallback or a default) logs it.
+   - Use WARNING with the exception when it's unexpected, and DEBUG when it's a normal race.
+   - An `except` that doesn't re-raise, log, or turn into an `AppError` is a bug ([coding-standards §1](coding-standards.md): never swallow).
+   - Today only the share-code retry carries on (`share.code_retry`, DEBUG). The other `IntegrityError` races end as a 409 or are re-raised, so the access line already covers them.
+2. **Long flows log their steps at DEBUG.**
+   - This covers flows with several outside calls or many writes:
+     - **share import:** source loaded, origins copied, cards copied, committed
+     - **the art check on save:** the R2 `HEAD` and its result
+   - Each step carries its duration, which shows which step was slow.
+   - The steps are off in production. `LOG_LEVEL=DEBUG` on Render turns them on while chasing a problem (changing an env var redeploys).
+3. **The browser keeps breadcrumbs.**
+   - The logger keeps the last 20 entries of every level in memory, including two new debug events:
+     - `nav.page_viewed`, with the route pattern
+     - `api.request`, with the method, path, status, duration and request id
+   - An error sent to the server carries them as `breadcrumbs`. Its line then shows the steps that led to it, without sending every step.
+4. **Work outside a request logs itself.** Startup and migrations already do (`app.started` and Alembic's lines). From M6:
+   - **WebSockets:** a socket is one request that lasts a whole game, so it logs per message:
+     - `ws.connected`, and `ws.closed` with its duration and close code
+     - `game.started` and `game.ended`
+     - `game.action_rejected` (INFO, with the reason) and `game.action_applied` (DEBUG)
+     - `timer.expired` and `ws.resync`
+     - each with `room_code` and `game_id`
+   - **Background tasks** run through a small wrapper that logs an exception at ERROR with its traceback. Otherwise asyncio only prints "Task exception was never retrieved", late or never.
+
+Not planned: holding a request's DEBUG lines and printing them only when the request fails. This can be added later if tracebacks turn out not to be enough.
+
+### What is never logged
+- **Credentials:**
+  - passwords and password hashes
+  - access and refresh tokens
+  - the `Authorization`, `Cookie` and `Set-Cookie` headers
+  - presigned upload URLs
+  - secrets and connection URLs from `Settings`
+- **Personal data:** emails.
+- **Request and response bodies:** only named fields are logged.
+- **Query strings:** M6's WebSocket puts the access token in `?token=`.
+- **Local variables in tracebacks.**
+
+Safety nets:
+- **Redaction (both sides):** values under keys such as `password`, `token`, `secret`, `authorization`, `cookie`, `access`, `refresh` and `upload_url` become `[redacted]`, including inside nested fields.
+- **Scrubbing (backend):** text that looks like a JWT, a `token=` value, an `X-Amz-Signature` or `X-Amz-Credential` value, or `user:pass@` in a URL is replaced. This covers stdlib lines and exception messages too.
+- **SQLAlchemy** runs with `hide_parameters=True`, so a database error doesn't print the email and password hash of a failed insert.
+
+These are logged on purpose, since only the developer reads the logs and they are all in the database anyway:
+- user ids
+- the client IP, on the access line only
+- share and room codes inside paths
+
+### Request ids
+- **The browser** makes a new id for each API request attempt:
+  - `crypto.randomUUID()`, falling back to `crypto.getRandomValues` on plain HTTP (a LAN IP)
+  - sent as `X-Request-ID`
+  - a retry after a token refresh gets a new id
+- **The API:**
+  - keeps an incoming id that matches `^[A-Za-z0-9-]{8,64}$`, and otherwise makes its own (`uuid4().hex`)
+  - uses the id only to link log lines, never as a key for anything
+  - returns it in the `X-Request-ID` response header and adds it to every line during the request
+  - puts it in the body of a 500
+- **The UI:**
+  - `ApiError.requestId` keeps the id
+  - the message for a 5xx ends with "(error ID: 3f2a9c1e)", the first 8 characters, so a user's report can be found in the logs
+- **Exceptions:**
+  - The R2 upload doesn't get the header, because the bucket's CORS rule would refuse it.
+  - Browsers can't send headers on a WebSocket, so the server always makes those ids.
+
+### Backend
+- **structlog 26.1.0 on top of stdlib `logging`.** Our code logs through structlog. uvicorn, Alembic and SQLAlchemy lines go through the same formatter, so every line has the same shape.
+- **`core/logging_config.py`**, `configure_logging(settings)`:
+  - **Handler:** one root handler, writing to stdout.
+  - **Renderer:**
+    - dev: `ConsoleRenderer` with plain tracebacks (no locals)
+    - production: `JSONRenderer` after `format_exc_info`
+  - **Processors** run in this order: contextvars, level, logger name, timestamp, then redaction and scrubbing. Lines from stdlib loggers go through them too.
+  - **Levels:**
+    - root: WARNING
+    - `app`: `LOG_LEVEL`
+    - `uvicorn.error` and `alembic`: INFO
+    - `sqlalchemy.engine`: WARNING
+
+    So `LOG_LEVEL=DEBUG` never turns on third-party debug output; botocore's includes signed headers.
+  - **uvicorn:**
+    - `disable_existing_loggers=False`
+    - uvicorn's loggers send their lines to the root handler
+    - uvicorn's own access log is turned off in code, since the middleware writes the access line. The dev command needs no new flag.
+    - a filter on `uvicorn.error` strips the query string from WebSocket handshake lines
+  - **`cache_logger_on_first_use=False`**, so tests can capture logs.
+  - **Called once per process:**
+    - when `app/main.py` is imported. Not in `create_app()`, which tests call for every test.
+    - from `alembic/env.py`, instead of `fileConfig`. `alembic.ini` loses its logging sections.
+  - **`get_logger(__name__)`:** all app loggers live under `app.`
+- **Settings:**
+  - `LOG_LEVEL`: DEBUG, INFO, WARNING or ERROR, in any case. The default is INFO.
+  - `LOG_FORMAT`: `auto`, `console` or `json`. `auto` gives console output in a terminal and JSON otherwise.
+  - `render.yaml` sets `LOG_FORMAT` to `json`.
+- **`core/middleware.py`**, `RequestContextMiddleware`. It is a plain ASGI middleware (not `BaseHTTPMiddleware`) and handles both HTTP and WebSocket:
+  - **Request id:** it clears the context, sets the request id (in the context and in `scope["state"]`) and adds `X-Request-ID` to the response.
+  - **Access line:** one `http.request` per request, with `method`, `path` (without the query string), `route` (the template), `status`, `duration_ms`, `user_id`, `error_code` and `client_ip`.
+  - **Level of the access line:**
+    - ERROR for a 5xx
+    - WARNING when the request took over 1 s
+    - INFO otherwise
+    - DEBUG below 400 for `/api/health/live` (Render polls it every few seconds), static files and `/api/client-logs`
+  - **Unhandled exception:**
+    - The access line becomes ERROR, with `error_code=internal_error` and the traceback.
+    - The middleware sends the JSON 500 itself: `{"detail": {"code": "internal_error", "message": "Something went wrong.", "request_id": …}}`. Nothing else prints the traceback again.
+    - It catches `Exception` only, never cancellation.
+    - If the response has already started, it only logs.
+    - A WebSocket is closed with code 1011 instead.
+  - **`user_id` and `error_code`** are read from `request.state`. They are set by:
+    - `get_current_user`
+    - the `AppError` and `HTTPException` handlers
+    - a wrapper around FastAPI's 422 handler, which sets `validation_error` and leaves the body unchanged
+- **`get_current_user`** stays async, sets `request.state.user_id`, and binds `user_id` so service lines carry it.
+- **Service events** are added only where they give facts the access line lacks, since the access line already shows who called which route and the result:
+
+| Event | Level | Fields | Where |
+|---|---|---|---|
+| `app.started`, `app.stopped` | INFO | log level and format, and the commit (`RENDER_GIT_COMMIT`, if set) | lifespan |
+| `auth.registered`, `auth.logged_in` | INFO | `user_id` (the access line has none on these routes) | auth service |
+| `upload.ticket_issued` | INFO | kind, content type, size and `art_key`, never the URL | upload service |
+| `share.created`, `share.revoked`, `share.imported` | INFO | kind, ids, and the number of cards and origins copied | share service |
+| `share.code_retry` | DEBUG | the attempt number | share service (a code collision or a concurrent share) |
+| `health.check_failed` | WARNING | the check's name, with the exception | health service (already logs; moves to structlog) |
+| `client_logs.dropped` | WARNING | count and reason | client log service |
+
+The DEBUG steps of the share import and the art check (see "When one line per request isn't enough") aren't listed here.
+
+- **The engine never logs.** It stays pure: it returns errors and events, and the service that runs it logs them. A test checks that `app/engine` never imports `logging` or `structlog`.
+- **Background tasks** (M6's turn timers) start with an empty context, so they don't inherit the request id of the request that created them. They bind their own fields, such as `room_code` and `game_id`.
+
+### Frontend
+- **`src/log/`** imports nothing from `api/` or `auth/`. It holds:
+  - **`logger.ts`:**
+    - `log.debug/info/warn/error(event, fields?)`
+    - each entry gets `ts`, `level`, `event` and `page` (the path without the query string)
+    - the same key redaction as the backend
+    - a ring buffer of the last 20 entries of every level, attached as `breadcrumbs` to the `error` entries the remote sink sends
+  - **`consoleSink.ts`:**
+    - the only file allowed to call `console` (ESLint's `no-console` applies everywhere else)
+    - dev prints every level; production prints warn and error
+  - **`remoteSink.ts`:**
+    - **When:** production builds only, warn and error only.
+    - **Batches:** at most 10 entries, sent every 5 s, each under about 48 KiB.
+    - **Sending:**
+      - with plain `fetch`, not `authFetch`, so there are no refresh loops
+      - with the bearer token when there is one
+      - on `pagehide`, what is left goes with `keepalive: true`, which browsers cap at 64 KiB
+    - **Flood control:**
+      - the same event and message repeated within 60 s is counted, not resent
+      - a token bucket allows 10 at once, then 20 more per 5 minutes
+      - the queue has a size cap
+    - **Its own failures** are never sent.
+  - **`errorHandlers.ts`:**
+    - **Window `error` events:** caught in the bubble phase, so broken images don't count. "Script error." and errors from browser extensions are dropped.
+    - **Window `unhandledrejection` events.**
+    - **React's root hooks:** `onUncaughtError`, `onCaughtError` and `onRecoverableError`.
+    - **The router's `onError`.**
+    - Each error is logged once (a `WeakSet` remembers it).
+  - **`serializeError.ts`:** name, message and stack, with the stack cut to 2000 characters.
+  - **`installLogging({ apiOrigin, getAccessToken })`:** called in `main.tsx`; sets up the sinks. Tests install a memory sink instead.
+- **API client:** `authFetch`:
+  - sets the request id and times the request
+  - logs every call as `api.request` (debug), with method, path, status, `request_id` and `duration_ms`
+  - logs `api.request_failed` (warn) for a 5xx, with its code, or for a network error; nothing for an `AbortError` from a cancelled query
+- **`RouteErrorPage.tsx`** is the root route's `errorElement`. It shows "Something went wrong" with a Reload button. Today react-router's default screen shows the stack trace, even in production.
+- **Events:**
+
+| Event | Level | Where |
+|---|---|---|
+| `api.request` | debug, for every call: method, path, status, duration and request id | `api/client.ts` |
+| `api.request_failed` | warn for a 5xx or network error (a 4xx shows only on the debug `api.request`) | `api/client.ts` |
+| `nav.page_viewed` | debug, with the route pattern | `App.tsx` (the router) |
+| `auth.session_expired` | info | `auth/tokens.ts` |
+| `auth.restore_failed` | warn | `AuthProvider` (silently swallowed today) |
+| `auth.logout_cookie_clear_failed` | warn | `api/client.ts` (a `console.warn` today) |
+| `upload.put_failed` | warn | `api/uploadArt.ts`: status, type and size, never the URL |
+| `ui.render_error` | error | the React and router error hooks, with the component stack |
+| `ui.uncaught_error`, `ui.recoverable_error` | error, warn | React's root hooks |
+| `window.error`, `window.unhandled_rejection` | error | the window listeners |
+
+### `POST /api/client-logs`
+- **Body:** `{entries: [...]}`, with at most 20 entries. Each entry has:
+  - `level`: `warn` or `error`
+  - `event`: matches `^[a-z0-9_.]{1,64}$`
+  - `message`: at most 500 characters
+  - `stack`: at most 4000 characters
+  - `page`: at most 200 characters
+  - `client_ts`
+  - `context`: at most 20 keys matching `^[a-z0-9_]{1,40}$`. Each value is a string (at most 200 characters), a number, a boolean or null.
+  - `breadcrumbs`, on `error` entries only: at most 20 items, each with `ts`, `level`, `event` and a `context` of at most 5 keys (same key and value rules). The 64 KiB cap still applies, and the sink splits batches by bytes.
+- **Errors:**
+  - 413 `payload_too_large` when `Content-Length` is over 64 KiB
+  - 422 for an invalid body
+- **Auth is optional:**
+  - A valid bearer token adds `user_id`. The token is only decoded, with no database query, so sending logs doesn't wake Neon.
+  - A missing, expired or invalid token makes the entry anonymous. It never causes a 401.
+- **Each entry is logged** on `app.client` as `web.<event>`, so a browser can't fake an `http.request` line. It carries:
+  - `source="web"`, `client_ts`, `page`, `message` and `stack`
+  - `context` and `breadcrumbs`, each nested under its own key
+  - `user_agent` (at most 200 characters)
+  - the request's `request_id`
+- **Rate limit:**
+  - kept in process, since there is one worker
+  - 60 entries a minute per user (per IP when anonymous), and 600 a minute overall. The IP comes from `X-Forwarded-For`, which a client can fake, hence the overall cap.
+  - extra entries are dropped and counted in one `client_logs.dropped` WARNING per minute
+- **The answer** is 204, also when entries were dropped.
+- **Its access line** is DEBUG.
+
+### Reading the logs
+- **Dev:** the uvicorn terminal shows coloured lines. `LOG_LEVEL=DEBUG` adds the health probes and static files.
+- **Production:** Render → the service → **Logs**. You can search for:
+  - a `request_id` (the 8 characters of a user's "error ID" are enough)
+  - `"level":"error"`
+  - an event name
+  - an `error_code`
+- `deployment.md` gets a short "Reading the logs" section.
 
 ## Done when
-- [x] **Catalog:**
-  - `useCatalog` loads `GET /api/catalog` once per session
-  - every module settings form is built from it by `SchemaForm`, with no form written for one module
-- [x] **`SchemaForm`** renders:
-  - integers (with min/max), numbers, booleans and string enums
-  - arrays of enums: checkboxes with `uniqueItems`, otherwise a list of selects
-  - labels from `title`, defaults from `default`
-  - a schema with no properties renders nothing, and an unsupported property shows a visible error instead of being skipped
-- [x] **Origin list (`/origins`):**
-  - the system origins appear as read-only templates with **Duplicate**
-  - the user's own origins can be edited, duplicated and deleted
-- [x] **Origin editor (`/origins/new`, `/origins/:id`):**
-  - fields: name, colour, icon, an optional background image, and up to 3 field effects with no repeats, each set up with `SchemaForm`
-  - `OriginPreview` updates live
-  - a system origin's page is read-only
-  - deleting an origin in use shows the server's `origin_in_use` lists of cards and decks
-- [x] **Card editor (`/cards/new`, `/cards/:id`):**
-  - fields:
-    - kind, name and mana cost
-    - origin: the user's own and the system origins. **+ New origin** opens the origin editor in a modal and selects the new origin.
-    - HP and DMG
-    - abilities (creatures, at most 2, no repeats) or one effect (spells), set up with `SchemaForm`
-    - group and art
-  - a spell's DMG follows its effect's `dmg_use` (see Decisions)
-  - changing the kind sends the right nulls, for example `hp: null` for a spell
-  - `CardPreview` shows the card in `CardFrame`
-  - deleting a card that a deck holds, or moving it to an origin that doesn't fit one, shows the server's `card_in_use` list of decks
-- [x] **Cost suggestion:**
-  - `CostSuggestion` updates as the stats and the ability params change
-  - **Use suggested** fills in the suggestion, capped at 10. Above 10, the hint says the card is stronger than any legal cost.
-  - Save is never blocked by the formula, and the editor shows no balance label
-- [x] **Card library (`/cards`):**
-  - a group panel lists **All cards**, **Ungrouped**, and each group with its card count
-  - groups can be created, renamed and deleted. `group_name_taken` shows on the name field. Deleting asks first and keeps the cards.
-  - a grid of cards in `CardFrame`, each with its balance label (*under-costed / balanced / over-costed*, in words and not by colour alone)
-  - filters for origin and kind, with the group and the filters kept in the URL
-  - **Load more** paging
-  - a card can be moved to another group from the grid and from the editor
-- [x] **Art upload** (card art and origin backgrounds):
-  - the browser checks the type (png, jpeg, webp) and the size (2 MiB or less) before any request
-  - flow: `POST /api/uploads/{card-art|origin-art}`, then `PUT` the file to `upload_url` with the same `Content-Type`, then save `art_key` with the card or origin
-  - the preview shows the picked file at once, cropped by CSS to the art frame
-  - **Remove** sends `null`
-  - errors (`unsupported_art_type`, `art_too_large`, a failed `PUT`, `invalid_art_key`) show at the uploader
-  - a real upload through R2 is checked by hand in the browser: card art and an origin background, both shown from the public URL
-- [x] **Nav:** Dashboard, Cards, Origins.
-- [x] **Checks pass:**
-  - `npm run lint`, `npm run format:check`, `npm run typecheck`, `npm test` and `npm run build`
-  - `npm run e2e`, with the auth spec plus the new content spec
-  - `npm run gen:api` gives no diff (F1 doesn't change the API)
+- [x] **Backend lines:**
+  - every line has one shape, with `ts`, `level`, `event` and `logger`, including uvicorn's and Alembic's lines
+  - lines are coloured in dev and JSON in production (`LOG_FORMAT`)
+  - `LOG_LEVEL` controls our code only
+- [x] **Access lines:**
+  - every API request gives exactly one `http.request` line, with the request id, the route, the status, the duration, and the user and `error_code` when there are any
+  - Render's health probes and static files are DEBUG
+- [x] **Request ids:**
+  - `X-Request-ID` is kept when it is valid and replaced when it isn't
+  - every response returns it, and every line during the request has it
+- [x] **Crashes:**
+  - an unhandled exception gives one ERROR line with the traceback, and a JSON 500 `internal_error` with the `request_id`
+  - the traceback is not printed a second time
+- [x] **Never logged:**
+  - tokens, passwords, cookies, presigned URLs, secrets, emails, query strings and traceback locals
+  - covered by tests for the redaction, the scrubbing and the WebSocket query filter
+- [x] **Service events:**
+  - the events in the table above are logged, with tests
+  - every caught exception that a request survives is logged, including `share.code_retry`
+  - the share import and the art check log their steps at DEBUG
+  - the engine imports no logging, which is checked by a test
+- [x] **`POST /api/client-logs`:**
+  - checks its limits (413, 422)
+  - logs each entry as `web.<event>`, with `user_id` from a valid token, or anonymously
+  - is rate-limited with one `client_logs.dropped` warning, and answers 204
+- [x] **Frontend logger:**
+  - no `console.*` outside `consoleSink.ts`, enforced by ESLint
+  - production sends warn and error in batches, within the byte, repeat and rate limits
+- [x] **Frontend events:**
+  - API failures, React render errors, window errors and rejections, a failed R2 upload, and a failed session restore are each logged once
+  - they carry the request id where there is one
+  - an error sent from the browser carries the last 20 steps as `breadcrumbs`
+- [x] **UI:** a 5xx message shows "(error ID: …)", and a render error shows `RouteErrorPage` instead of a stack trace.
+- [ ] **Checked by hand:**
+  - dev: coloured lines
+  - the production image run locally: JSON lines
+  - a browser error in the production build appears as `web.*`, and it shares the request id with the API's line when an API call failed
+  - after deploying, the same on Render
+- [ ] **Checks pass:**
+  - backend: `pytest` (461 passed), `ruff check .`, `ruff format --check .` and `mypy app tests`: pass
+  - frontend: `npm run lint`, `format:check`, `typecheck`, `test` (147 passed) and `build`: pass. `e2e` not run yet (Open questions).
+  - `npm run gen:api` changes only what the new endpoint adds: yes
 
 ## Decisions
-Confirmed with the user on 2026-11-10:
-- **Art is cropped by CSS only:** `object-fit: cover` in the art frame, and the original file is uploaded unchanged. There is no crop tool. (frontend_plan §4.1 updated.)
-- **No cost filter in F1.** `GET /api/cards` filters only by origin, kind and group. A cost filter needs a backend change and waits. (frontend_plan §3 updated.)
-- **Art upload tests are mocked:**
-  - MSW fakes the presign and the R2 `PUT` in component tests
-  - the e2e spec doesn't upload art, so it doesn't depend on R2 and leaves nothing in the bucket
-  - one real upload is checked by hand
-- **The R2 CORS rule is in place** (the user, 2026-11-10), so browser uploads can reach the bucket.
+Confirmed with the user on 2026-11-11:
+- **Backend library:** structlog, pinned (26.1.0 is the newest release on 2026-11-11), over stdlib-only code.
+- **Frontend logs** go to the console, and in production builds warnings and errors also go to `POST /api/client-logs`. No third-party service such as Sentry.
+- **Production format:** JSON lines. Dev uses coloured console lines.
 
-Confirmed with the plan on 2026-11-10, with these changes to the proposals below:
-- **`features/origins/OriginIcon.tsx`** replaces `originIcons.tsx`. The file exports a component, so the standards want PascalCase, and `react-refresh/only-export-components` rejects a `.tsx` that also exports the key → icon map. The map stays private inside it.
-- **A spell's effect is a required Effect select** plus `SchemaForm` (`SpellEffectField.tsx`), not a `ModuleListField`, since a spell needs exactly one.
-- **Modals render outside the editor's `<form>`**, because the **+ New origin** modal holds its own form and nested forms are invalid HTML.
-- **The test setup also stubs `URL.createObjectURL` and `revokeObjectURL`**, which jsdom 29 lacks.
-- **Two extra shared files:** `ui/ConfirmDialog.tsx` (the three delete flows) and `api/inUse.ts` (narrows a 409's `cards`/`decks` lists).
-- **Group panel counts:**
-  - **All cards** shares the dashboard's `['cards', 'count']` query
-  - **Ungrouped** adds `['cards', 'count', 'ungrouped']`
-- **A new card starts as** a creature with HP 1, DMG 1 and mana 1, the origin from `?origin=` (or Neutral) and the group from `?group=`.
-- **Cards are deleted from the editor.** The grid has Edit and **Move to group…**.
-- **`lucide-react` 1.71.0**, the newest release, with all 16 origin icons checked.
+Everything else in "How it works" is proposed by this plan.
 
-The proposals, as confirmed:
-- **Icons:**
-  - use `lucide-react`, pinned exactly and checked with `npm view`. The catalog's 16 `origin_icons` keys are all Lucide icon names.
-  - `features/origins/originIcons.tsx` maps each key to its component, imported one by one so the bundle holds only those 16
-  - an unknown key (from a newer backend) falls back to `circle`
-- **Origin colours:**
-  - they come from `catalog.origin_colors` (key → hex) and are set inline (coding-standards §3)
-  - swatches and section tiles get a `border-strong` outline, so `black` (`#000000`) stays visible on the charcoal table
-  - colour is never the only signal: the icon and the name always come with it
-  - the colour and icon pickers are radio groups with names, so they work with the keyboard and screen readers
-- **The catalog is cached for the whole session:**
-  - query key `['catalog']`, `staleTime: Infinity`
-  - logout clears it with the rest of the cache
-  - it changes only when the backend is deployed
-- **`SchemaForm`:**
-  - it lives in `catalog/SchemaForm.tsx` and works inside the editor's React Hook Form (`useFormContext`) under a name prefix (for example `abilities.0.params`), so the params are part of the editor's form state
-  - the client checks only the schema's bounds; the server's `invalid_params` 422 is still shown
-  - adding a module fills its params from the schema defaults
-- **`catalog/ModuleListField.tsx`** is the list of chosen modules, used by creature abilities (at most 2) and origin field effects (at most 3):
-  - an **Add** select that hides the modules already chosen and is disabled at the limit
-  - each chosen module shows its name, its description, its `SchemaForm` and **Remove**
-  - F3's phase lists need ordering and repeats, so they will be built separately
-- **Cost formula:**
-  - `features/cards/cost.ts` mirrors `card_points` and `suggest_mana_cost` from `engine/cost.py`, plus an ability's cost: `base + Σ weight × params[name]` from the catalog's `cost`
-  - its test runs every case in `backend/tests/fixtures/cost_cases.json`
-  - the balance label always comes from the server's `balance`, so the client doesn't copy that function
-  - the editor computes locally and doesn't call `POST /api/cards/suggest-cost`, so typing sends no requests
-  - empty or invalid inputs count as 0, like the server's `hp or 0`
-- **Spell DMG by `dmg_use`:**
-  - `damage`: a "Damage" field, 1–99
-  - `heal`: a "Heal" field, typed as 1–99 and sent as a negative number (a stored −3 shows as 3)
-  - `none`: hidden, and sent as `null`
-- **Changing the kind** clears the abilities, because features and spell effects are different modules. A spell sends `hp: null`.
-- **Input bounds:**
-  - `api/bounds.ts` copies the server's content limits, the way `auth/bounds.ts` does: names 1–40, mana 0–10, HP 1–99, creature DMG 0–99, spell damage or heal 1–99, at most 2 abilities and 3 field effects, the art types and 2 MiB
-  - a comment points at the backend schemas
-  - the server's 422s are still shown
-- **Art upload:**
-  - the upload starts as soon as a file is picked, so Save stays quick and an upload error shows at once
-  - an upload that is never saved leaves an unused object in R2. Art objects are never deleted anyway (backend_plan §4).
-  - the preview uses `URL.createObjectURL` (revoked when it changes or unmounts) until the saved item's `art_url` or `background_art_url` takes over
-  - Save waits while an upload runs. This isn't a formula block.
-  - the R2 `PUT` uses plain `fetch` in `api/uploadArt.ts`, without the bearer header, since R2 is another origin. Components never call `fetch` themselves.
-  - `ArtUpload` lives in `features/cards/` (frontend_plan §2), and the origin editor imports it from there
-- **Saving:**
-  - the editors send the whole editable form on PATCH, not only the changed fields. The server re-checks the merged card anyway, and switching the kind then always sends its nulls.
-  - `art_key` is checked by the server only when it changes, so resending it is free
-  - Save and Cancel go back to the list the user came from, with its filters
-- **Duplicate** opens `/origins/new?from=<id>` filled in from the source, with the name "<name> copy" (cut to 40 characters). Nothing is created until Save, which `POST`s a new origin. Own origins can be duplicated too.
-- **URLs:**
-  - the library keeps its state in the query string: `group` (a group id or `ungrouped`), `origin` and `kind`
-  - F2's import can then link to `/cards?group=<id>`
-  - **New card** passes the current group and origin on to `/cards/new?group=…&origin=…` as starting values
-- **Lists and paging:**
-  - origins and card groups are short lists. `useOrigins` and `useCardGroups` load every page (100 per request) until they have `total`.
-  - the card grid uses `useInfiniteQuery` with 50 per page and **Load more**
-  - the origin picker groups the system origins and the user's own (`<optgroup>`)
-- **Data hooks and cache keys:**
-  - the hooks live in `api/hooks/`: `useOrigins`, `useOrigin`, `useCards`, `useCard`, `useCardGroups`, their mutations, and `useArtUpload`
-  - the keys start with `['origins']`, `['cards']` or `['card-groups']`, so the dashboard's count keys are refreshed by prefix
-  - a card change refreshes `cards` and `card-groups`, because the group counts change
-  - a group change refreshes both too, because deleting a group moves its cards to ungrouped
-  - an origin change refreshes `origins`
-- **Moving a card** to another group: **Move to group…** on a grid card opens a modal listing the groups and "No group". There is no drag-and-drop yet; dnd-kit arrives in F2.
-- **Deleting** asks for confirmation in a modal. A 409 shows its `[{id, name}]` lists in the same modal, with cards linked to their editors. Decks have no page until F2, so they show as names.
-- **`ui/Modal`:**
-  - it is built on the native `<dialog>` with `showModal()`, which gives focus handling, Esc to close and an inert background
-  - jsdom 29 has `HTMLDialogElement` but no `showModal`/`close`, so `src/test/setup.ts` adds a small stub
-- **`ui/CardFrame`:**
-  - it only displays, with no domain logic
-  - props: name, cost, HP, DMG, the art URL, the origin's hex and icon, and the ability names
-  - two sizes: `sm` for the library (and later the hand) and `md` for the editor preview
-  - F5 reuses it on the board
-- **`OriginPreview`** shows a section tile:
-  - the background image (or the colour), the icon and the name
-  - one badge per field effect: the module name, with its params as "Title value" in the badge's description
-- **Server errors on forms:** `auth/showServerError.ts` moves to `api/showServerError.ts` and takes a code → field map. Auth passes its current map. Content forms map:
-  - `group_name_taken` → name
-  - `invalid_art_key` → art
-  - anything else (`invalid_stats`, `invalid_params`, `invalid_abilities`, ...) → the form's message
-- **New dependency:** only `lucide-react`.
-- **New files the plan's layout (frontend_plan §2) doesn't list yet:**
-  - `catalog/ModuleListField.tsx`
-  - `features/origins/OriginForm.tsx` (the form, shared by the page and the **+ New origin** modal)
-  - `features/origins/originIcons.tsx`
-  - `features/cards/cost.ts`
-  - `api/bounds.ts`, `api/uploadArt.ts`, `api/showServerError.ts` (moved)
-  - `ui/SelectField.tsx` (a labelled select, like `TextField`)
-
-Changed or added while implementing (2026-11-10), all now in frontend_plan §2:
-- **`originValues.ts` and `cardValues.ts`** hold the pure form ↔ API code. Names like `originForm.ts` clash with `OriginForm.tsx` on Windows, which ignores case in file names.
-- **More small files**, to keep each one doing one thing and under about 200 lines:
-  - `catalog/`: `schemaFields.ts` (the pure schema parser, tested on its own), `EnumArrayParams.tsx`, `useFieldError.ts`, `humanize.ts`
-  - `ui/`: `ButtonLink`, `ErrorAlert`, `InUseList`, `LoadingState`, `buttonStyles.ts`, and a `danger` button variant
-  - `features/origins/`: `OriginListItem`, `OriginLookFields`, `originLook.ts`, `DeleteOriginDialog`
-  - `features/cards/`: the editor's field groups, `CardView`, `LibraryCard`, `LibraryFilters`, the group, move and delete dialogs, `libraryParams.ts` and `useArtField.ts`
-- **`ui/Modal`:**
-  - it focuses an element marked `data-autofocus` once open, because React's `autoFocus` runs before `showModal()`
-  - it gives focus back to the control that opened it (checked in the browser)
-- **A deleted card's own query isn't refetched**, so its editor doesn't flash a 404 while it closes.
-- **A spell's "Choose an effect." error** is read from `errors.abilities.root` too. React Hook Form files it there once the creature ability list has been shown.
-- **The file input** keeps the picked file's name, and is cleared after an error or a removal, so the same file can be picked again.
-- **Test setup:**
-  - Vitest may read `backend/tests/fixtures`, through `server.fs.allow` set only while Vitest runs. `cost.test.ts` imports `cost_cases.json` with `?raw`.
-  - `testTimeout` is 15 s, and Testing Library waits up to 3 s. The defaults failed when the whole suite ran next to the dev stack.
-- **Data hooks:** the dashboard's card count is a `useQuery(cardCountQuery())` of its own, because `useQueries` rejected the shared query's key type.
+Changed or added while implementing (2026-11-11), all in the plans now:
+- **The access line's `route`:**
+  - FastAPI 0.143 keeps a route that came through `include_router` relative to its router (`/health`, `/share/{code}`).
+  - The middleware rebuilds the full template from the route's public `path` and `path_regex`: the prefix is the part of the real path in front of the match.
+  - A test covers a nested route.
+- **JSON lines are compact** (`"level":"error"`, no spaces), so the searches in deployment.md match exactly.
+- **The browser's 4xx** shows only on its debug `api.request` line, not as an `api.request_failed`.
+- **Recognising errors in the browser:**
+  - Abort errors and other error-like values are recognised by their `name` and `message`, since jsdom's `DOMException` isn't an `instanceof Error`.
+  - `isAbort` lives in `log/errorHandlers.ts`, and `api/client.ts` uses it.
+- **The remote sink** sends one batch after another (a promise chain) instead of skipping a flush while a send runs. Only the `pagehide` send doesn't wait.
+- **`client_logs.dropped`** is logged at the first drop of each minute, with `dropped`, `reason` (`source_limit` or `overall_limit`) and `source` (`user` or `ip`). Later drops in that minute are counted but not logged.
+- **`get_optional_user_id`** also binds the user, so the `web.*` lines and their access line carry `user_id`. An expired or invalid token logs `auth.optional_token_ignored` at DEBUG.
+- **`health.check_failed`** is now a WARNING with the exception, where it was `logger.exception` (ERROR). The request survives, and its access line is the ERROR (503).
+- **Test helpers:**
+  - `make_settings(**overrides)` takes raw values.
+  - Passing it straight to `dependency_overrides` would make FastAPI read `overrides` as a query parameter, so `test_health.py` wraps it in a lambda.
+  - `logged()` and `access_line()` live in `tests/helpers.py`, and `logs` in `conftest.py`.
+- **The WebSocket middleware test** drives the app through ASGI directly. Starlette's `TestClient` warns that its httpx use is deprecated.
 
 ## Tasks
-Order: dependency and `ui/` → catalog and `SchemaForm` → shared hooks and helpers → origins → art upload → card editor and cost → library and groups → routes and nav → e2e → docs. Each step comes with its tests.
+Order:
+1. backend setup
+2. errors and middleware
+3. service events
+4. client-logs endpoint
+5. lint guards
+6. frontend logger
+7. API client and error hooks
+8. remote sink
+9. docs
 
-### Dependency and `ui/`
-- [x] Add `lucide-react`, pinned exactly.
-- [x] `ui/Modal.tsx` (native `<dialog>`, with a title, Esc and close) and the `showModal`/`close` stub in `src/test/setup.ts`.
-- [x] `ui/SelectField.tsx` and `ui/CardFrame.tsx` (`sm` and `md`).
+Each step comes with its tests.
 
-### Catalog and `SchemaForm`
-- [x] `catalog/useCatalog.ts`: key `['catalog']`, `staleTime: Infinity`, plus a helper that finds a module by key.
-- [x] `catalog/SchemaForm.tsx`: integer, number, boolean, string enum, an array of enums (checkboxes with `uniqueItems`, otherwise a list of selects within `minItems`/`maxItems`), no properties, and an unsupported property shown as an error.
-- [x] `catalog/ModuleListField.tsx`: add, remove, the limit, no repeats, and defaults from the schema.
+### Backend: setup
+- [x] Add `structlog==26.1.0` to `requirements.txt`.
+- [x] Add `Settings.log_level` (case-insensitive) and `log_format`. Add both to `.env.example`, and add `LOG_FORMAT` with `value: json` to `render.yaml`.
+- [x] `core/logging_config.py`: processors, renderers, levels, redaction and scrubbing, uvicorn's loggers and the WebSocket query filter, and `get_logger`. Call it from `app/main.py` at import and from `alembic/env.py`, and trim `alembic.ini`.
+- [x] `hide_parameters=True` in `core/db.py`'s `create_engine`.
 
-### Shared hooks and helpers
-- [x] `api/bounds.ts` (the content limits), and `api/showServerError.ts` moved from `auth/`, with a code → field map. Update the auth pages.
-- [x] `api/hooks/useOrigins.ts` (all pages, `useOrigin`, create, update, delete), `useCardGroups.ts` (all pages, create, rename, delete), `useCards.ts` (infinite list with filters, `useCard`, create, update, delete), with the cache refreshes above.
-- [x] `features/origins/originIcons.tsx`, and an `OriginBadge` (swatch, icon and name) for the pickers, filters and cards.
+### Backend: requests
+- [x] `core/errors.py`:
+  - the 500 body comes from the same `_error_response` helper
+  - the handlers set `request.state.error_code`
+  - a wrapper around FastAPI's 422 handler sets `validation_error` and keeps the body
+- [x] `core/middleware.py`: `RequestContextMiddleware`, added in `create_app()`.
+- [x] `core/deps.py`: `get_current_user` takes the `Request`, sets `request.state.user_id` and binds `user_id`.
 
-### Origins
-- [x] `features/origins/OriginListPage.tsx`: the system templates (**Duplicate**), then the user's own (edit, **Duplicate**, delete with the `origin_in_use` lists).
-- [x] `features/origins/OriginForm.tsx`: the name, the colour and icon radio groups, `ArtUpload` for the background, and `ModuleListField` with field effects (at most 3).
-- [x] `features/origins/OriginEditorPage.tsx`: new, edit, read-only for system origins, and the `?from=` prefill. `OriginPreview.tsx` beside the form.
+### Backend: events
+- [x] The lifespan logs `app.started` and `app.stopped`.
+- [x] The auth, upload and share services log their events.
+- [x] `share.code_retry` in `share_service._get_or_create`.
+- [x] DEBUG steps with durations in the share import (`share_service`) and in `upload_service.verify_art_key`.
+- [x] `health_service` moves to structlog.
 
-### Art upload
-- [x] `api/uploadArt.ts`: request the ticket, then `PUT` to R2 with the `Content-Type`. `api/hooks/useArtUpload.ts` as a mutation.
-- [x] `features/cards/ArtUpload.tsx`: `kind` is `card` or `origin`; the browser checks the type and size; the local preview cropped by CSS; **Remove**; the errors.
+### Backend: client logs
+- [x] Add the new files:
+  - `schemas/client_log.py`
+  - `services/client_log_service.py` (the rate limit and the `web.*` lines)
+  - `api/client_logs.py`
+- [x] The `breadcrumbs` field on `error` entries, with its limits.
+- [x] Add `get_optional_user_id` (decodes the token only) to `core/deps.py`, and register the route in `api/router.py`.
+- [x] Run `npm run gen:api`.
 
-### Card editor and cost
-- [x] `features/cards/cost.ts`, and its test over `cost_cases.json`.
-- [x] `features/cards/CardEditorPage.tsx`:
-  - kind, name, origin (with **+ New origin** in a modal), HP and DMG by kind and `dmg_use`
-  - mana, abilities or effect, group, art, and delete with `card_in_use`
-  - split the page into smaller components when it grows past about 200 lines
-- [x] `features/cards/CostSuggestion.tsx` (live, **Use suggested** capped at 10, the hint above 10) and `CardPreview.tsx`.
+### Backend: guards
+- [x] Add ruff rules `T20` (no `print`), `G` and `LOG` (logging calls), and fix any findings.
+- [x] Add a test that `app/engine` imports neither `logging` nor `structlog`.
 
-### Library and groups
-- [x] `features/cards/CardLibraryPage.tsx`: the grid, the origin and kind filters in the URL, **Load more**, **New card** with the starting values, and **Move to group…**.
-- [x] `features/cards/CardGroupPanel.tsx`: All, Ungrouped, the groups with counts, and create, rename and delete.
-- [x] `features/cards/BalanceLabel.tsx`.
-
-### Routes and nav
-- [x] `routes.tsx`: `/origins`, `/origins/new`, `/origins/:id`, `/cards`, `/cards/new` and `/cards/:id`, inside the protected `AppShell` layout. The nav gets Cards and Origins.
+### Frontend
+- [x] `src/log/`: `logger.ts` (with the breadcrumb ring buffer), `consoleSink.ts`, `errorHandlers.ts`, `serializeError.ts` and `installLogging`, called in `main.tsx`.
+- [x] `api.request` on every call in `api/client.ts`, and `nav.page_viewed` on route changes in `App.tsx`.
+- [x] ESLint: `no-console: "error"` for `src/`, except `src/log/consoleSink.ts`.
+- [x] `api/client.ts`:
+  - the request id per attempt, the timing and `api.request_failed`, skipping `AbortError`
+  - `clearRefreshCookie` logs `auth.logout_cookie_clear_failed`
+- [x] `api/errors.ts`:
+  - `ApiError.requestId` (an optional last parameter) is filled by `unwrap` from the response header
+  - `errorMessage()` adds the error ID for a 5xx
+- [x] `api/uploadArt.ts`, `auth/AuthProvider.tsx` and `auth/tokens.ts` log their events.
+- [x] `errorHandlers.ts` is wired up:
+  - React's root options in `main.tsx`
+  - the router's `onError` in `App.tsx`
+  - `RouteErrorPage.tsx` as the root route's `errorElement`
+- [x] `log/remoteSink.ts`: the batches, the byte cap, the repeat counting, the token bucket, the `pagehide` flush, and breadcrumbs on `error` entries.
 
 ### Tests
-- [x] The fake API:
-  - a hand-written catalog fixture typed as `CatalogOut`, covering every `SchemaForm` type and every `dmg_use`
-  - MSW handlers for origins, cards, card groups and uploads, backed by a small in-memory store that is reset after each test
-  - a fake R2 `PUT` URL
-- [x] `SchemaForm` and `ModuleListField`: each type, the bounds, the defaults, the limit, no repeats, and the unsupported-property error.
-- [x] `cost.ts`: every case in `cost_cases.json`, plus an ability's cost from a catalog spec.
-- [x] Origin editor:
-  - create with a field effect; the preview updates
-  - at most 3 effects, with no repeats
-  - a system origin is read-only; **Duplicate** fills in the editor
-  - the `origin_in_use` lists
-- [x] Card editor:
-  - a creature with an ability; the suggestion follows the stats and the params
-  - **Use suggested** caps at 10 and shows the hint
-  - saving a cost that differs from the suggestion
-  - the spell DMG for `damage`, `heal` (sent negative) and `none` (hidden, `null`)
-  - switching the kind sends `hp: null`
-  - **+ New origin** selects the new origin
-  - the `card_in_use` list
-- [x] Library:
-  - the group panel and its counts
-  - the filters in the URL
-  - create, rename (`group_name_taken`) and delete a group
-  - **Move to group…**, the balance labels, **Load more**
-- [x] Art upload:
-  - a wrong type and too large a file are refused before any request
-  - the presign, then the `PUT` with the `Content-Type`, then `art_key` in the saved body
-  - a failed `PUT` shows a message
-  - **Remove** sends `null`
-- [x] Playwright `e2e/content.spec.ts`, as an `e2e_<random>` user:
-  - register
-  - create an origin with a field effect
-  - create a creature with an ability, and check the suggestion changes with HP
-  - create a group and move the card into it
-  - the library shows the card in that group with its balance label
-  - delete the card and the origin
-- [x] By hand in the browser through nginx: card art and an origin background uploaded to the real R2 and shown from the public URL.
+- [x] **Backend fixtures:**
+  - an autouse fixture that clears contextvars, because httpx's `ASGITransport` runs the app in the test's own task
+  - a log-capture fixture: structlog's `LogCapture`, with `merge_contextvars` before it
+- [x] **Backend `test_logging.py`:**
+  - JSON output, with the redaction and scrubbing
+  - existing loggers stay enabled
+  - uvicorn's lines are routed through our handler, and its access log stays silent
+  - the WebSocket query filter
+- [x] **Backend `test_middleware.py`:**
+  - the request id is generated, kept or replaced, and returned
+  - the access-line fields: `route`, `user_id`, and `error_code` for an `AppError`, a 404 and a 422
+  - the levels
+  - an unhandled exception gives one ERROR line and the JSON 500
+- [x] **Backend `test_client_logs.py`:**
+  - the limits, 413 and 422
+  - anonymous, a valid token, and an expired token
+  - `web.<event>`, the nested context, and the rate limit with its one warning
+  - breadcrumbs are logged nested, and more than 20 are refused
+- [x] **Backend service events:**
+  - `auth.registered`, `upload.ticket_issued` and `share.imported`
+  - `health.check_failed`, which the existing redis-down test now asserts
+  - a share-code collision logs `share.code_retry`
+  - the share import logs its steps at DEBUG
+- [x] **Frontend logger:**
+  - the thresholds, the redaction, and the console sink in dev and production
+  - a memory sink installed in `src/test/setup.ts` and reset after each test
+- [x] **Frontend `remoteSink`:**
+  - batching, the byte cap, repeats, the token bucket and the `pagehide` keepalive
+  - an `error` entry carries the last 20 breadcrumbs, within the limits
+  - the body checked through an MSW handler
+- [x] **Frontend `client.test.ts`:**
+  - `X-Request-ID` is sent, with a new one on retry
+  - a 5xx and a network error are logged with the request id
+  - an `AbortError` is not logged
+  - the `console.warn` spy (line 191) becomes a check on the log entry
+- [x] **Frontend `errors.test.ts`:** `requestId` and the error ID in the message.
+- [x] **Frontend error handlers:**
+  - a render error is logged once and shows `RouteErrorPage`
+  - window errors are filtered
+- [ ] **e2e:** the auth spec checks that the login response returns the browser's `X-Request-ID` through nginx. Written; not run yet (Open questions).
+- [ ] **By hand:**
+  - the dev terminal
+  - `docker run` of the production image with `.env.prod`
+  - a forced browser error in the production build, seen as `web.*`
+  - Render after the deploy
 
 ### Docs
+- [x] [backend_plan.md](backend_plan.md):
+  - §2: structlog
+  - §3: the new files
+  - §8: `POST /api/client-logs`, the `X-Request-ID` header, the 500 `internal_error` body and the 413 `payload_too_large`
+  - §9.2: the token in the WebSocket URL is stripped from uvicorn's lines
+  - a new §10.2 Logging, summarising "How it works"
 - [x] [frontend_plan.md](frontend_plan.md):
-  - §1: `lucide-react`
-  - §2: the new files
-  - §4.0 and §4.1: Duplicate fills in the editor, the heal sign, the upload starting when a file is picked
-  - §7: F1 done
-- [x] [coding-standards.md](coding-standards.md) §3, if a new rule comes up (for example the origin swatch outline).
-- [x] Record the decisions here and write the session file.
+  - §2: `log/` and `RouteErrorPage.tsx`
+  - §6: a Logging part, with the `ws.*` events F4–F5 will add
+- [x] [coding-standards.md](coding-standards.md):
+  - §1: event names, fields not prose, the levels, what is never logged, and that code which catches an exception and carries on logs it
+  - §2: `get_logger`, the engine never logs, background tasks start with an empty context and run through the wrapper that logs their exceptions (M6)
+  - §3: use `log`, never `console`
+- [x] [deployment.md](deployment.md):
+  - `LOG_LEVEL` and `LOG_FORMAT`
+  - "Reading the logs"
+  - the health-check line (now DEBUG, so it no longer shows every few seconds)
+  - a troubleshooting row for "a user reports an error ID"
+- [x] Update this file, and write the session file.
 
-## Out of scope (later milestones)
-- Sharing a card group and the share dialog, the deck builder, and the import page (F2)
-- Drag-and-drop between groups (dnd-kit comes in F2); moving uses a menu
-- Selecting several cards to move or delete at once
-- A cost filter in the library: it needs a backend filter (dropped 2026-11-10)
-- A crop tool (art is cropped by CSS only)
-- A warning about unsaved changes when leaving an editor
-- The dashboard's "most recent" lists and an origin count (frontend_plan §3)
-- Deleting art objects from R2 (they are never deleted, backend_plan §4)
-- The rules editor (F3), rooms and the lobby (F4), the game board (F5)
+## Out of scope
+- **External log tools:** log drains, alerts, metrics and tracing. Render's log viewer is enough for now, and a JSON log drain can be added later without code changes.
+- **Sentry**, or any other third-party error tracker.
+- **The query retry policy:** `queryClient` retries a 5xx twice, so one failing query gives three server error lines with three request ids. It stays as it is.
+- **A top-level error boundary outside `AuthProvider`:** `onUncaughtError` still logs an error there, but the page stays blank.
+- **Moving the WebSocket access token out of the URL:** decided in M6. Until then, the filter keeps it out of uvicorn's lines.
+- **WebSocket, room and game events:** M6 and F4–F5 add them under these rules.
+- **Rate limits on other endpoints** ([backend_plan.md §13](backend_plan.md)).
+- **Sampling, and log levels per module.**
+- **Holding a request's DEBUG lines** and printing them only when the request fails.
 
 ## Notes
-- **F1 needs no backend change.** It relies on M2 and M3 as they are:
-  - `GET /api/catalog`:
-    - `features` and `spells` carry `cost: {base, per_param}`, and spells also `dmg_use`
-    - `field_effects` have params only
-    - `origin_colors` is a list of `{key, hex}`, and `origin_icons` a list of keys
-  - `OriginOut`:
-    - fields: `id`, `name`, `color`, `icon`, `field_effects: [{key, params}]`, `background_art_key`, `background_art_url`, `is_system`, `system_key` and the timestamps
-    - the list puts system origins first, then the user's own, each by name
-    - a PATCH or DELETE on a system origin gives 403 `system_origin_read_only`
-  - `CardOut`:
-    - fields: `id`, `kind`, `name`, `origin_id`, `mana_cost`, `hp`, `dmg`, `abilities`, `group_id`, `art_key`, `art_url`, `suggested_mana_cost`, `balance` and the timestamps
-    - the list is newest first, filtered by `origin_id`, `kind`, and `group_id` or `ungrouped=true` (sending both gives 422)
-  - `CardGroupOut`: `id`, `name`, `card_count`, `share_code` and the timestamps. The list is sorted by name.
-  - uploads take `{content_type, size}` and return `{upload_url, art_key, expires_in}`. The presigned `PUT` signs the `Content-Type`.
-  - PATCH changes only the fields sent. `null` clears `hp`, `dmg`, `group_id`, `art_key` and `background_art_key`, and is refused for required fields.
-  - lists take `limit` (1–100) and `offset`, and return `{items, total}`
-  - error codes: `origin_in_use` (`cards`, `decks`), `card_in_use` (`decks`), `group_name_taken`, `unknown_module`, `invalid_params`, `invalid_field_effects`, `invalid_stats`, `invalid_abilities`, `invalid_origin`, `invalid_group`, `unsupported_art_type`, `art_too_large`, `invalid_art_key`, and the `*_not_found` 404s
-- **Module params in use today:**
-  - features, spells and field effects use only bounded integers and string enums
-  - an array of enums with `uniqueItems` appears only in `action_phase` (F3)
-  - no module uses numbers or booleans yet
-  - `SchemaForm` still supports and tests every type in the backend's contract (`tests/engine/test_modules.py`)
-- **The server is authoritative** (frontend_plan §0). F1 copies only the input bounds and the cost formula, which is advice that frontend_plan §4.1 asks for.
-- **Seeded system origins:** `neutral` (no effects), `forest`, `volcano`, `ocean` and `mountain`.
+- **Checked in the installed packages:** uvicorn 0.54.0, Starlette 1.8.0, FastAPI 0.143.2, react-router 8.5.1 and react-dom 19.3.1.
+  - **uvicorn:**
+    - It applies its own logging config before it imports the app, in the `--reload` worker too, so configuring at import of `app.main` wins. Only the reloader's own lines ("Will watch…") keep uvicorn's format.
+    - It writes access lines only while `uvicorn.access` has handlers.
+    - It logs WebSocket handshakes on `uvicorn.error` with the full query string.
+  - **Middleware order:** ServerErrorMiddleware → our middleware → ExceptionMiddleware → router. So `AppError`, `HTTPException` and 422s reach our middleware as normal responses.
+  - **Request state and context:**
+    - `request.state` is `scope["state"]`, shared by every layer. httpx's `ASGITransport` doesn't create it, so the middleware does.
+    - Async dependencies run in the middleware's task, so values they bind reach the endpoint and the services. Sync dependencies run in a thread with a copy of the context.
+  - **React and react-router:**
+    - React calls the root's `onCaughtError` before the router's error boundary calls its `onError`.
+    - The router's default error screen shows `error.stack` in production builds.
+- **Checked in structlog 26.1.0:**
+  - `ExceptionDictTransformer` defaults to `show_locals=False`, and JSON uses `format_exc_info` anyway.
+  - `capture_logs(processors=...)` exists (since 25.5.0), and the `logs` fixture uses it.
+- **Checked by running the dev API:** uvicorn's own lines ("Started server process", "Application startup complete") come out in the same JSON shape, and so does `app.started`. A failed `/api/health` gave two `health.check_failed` warnings and an ERROR access line, all with one `request_id`.
+- **Still unchecked:**
+  - whether Render sets `RENDER_GIT_COMMIT` at runtime (`app.started` shows `commit: null` if not)
+  - whether Render rewrites a client's `X-Forwarded-For`
+- **Tests:** once the middleware sends 500s itself, a server bug in a test shows up as a 500 response, not a raised exception.
+- **The dev venv** has `rich` (through fastapi-cloud-cli), which isn't in the requirements. The console renderer is told to use plain tracebacks, so dev doesn't depend on it.
 
 ## Open questions
-- None right now.
+- **The local `.env` points at production.**
+  - `DATABASE_URL` is the Neon project (database `neondb`), and `REDIS_URL` is Upstash.
+  - Redis refuses the login from there (`AuthenticationError`, probably `REDIS_PASSWORD` overriding the password in the URL), so `/api/health` answers 503 and the e2e setup stops.
+  - Running e2e or the dev API against production would write `e2e_…` users into the production database, so neither was run.
+  - To finish: put the local values back (`.env.example`: `127.0.0.1:5432` and `127.0.0.1:6379`) and keep the production ones in `.env.prod`. Then run `npm run e2e` and the checks by hand.
+- **The backend tests used Neon:** with this `.env`, `pytest` ran against a `neondb_test` database on the Neon server (created if it was missing). Every test rolls back, and production `neondb` wasn't touched. You may want to drop `neondb_test` in the Neon console.

@@ -1,8 +1,10 @@
 from typing import Any
 
+import pytest
 from httpx import AsyncClient
 
 from app.core.codes import CODE_ALPHABET
+from app.services import share_service
 from tests.helpers import (
     PUBLIC_BASE_URL,
     AuthedUser,
@@ -12,6 +14,7 @@ from tests.helpers import (
     create_deck,
     create_group,
     create_origin,
+    logged,
     share,
     system_origin_id,
     uploaded_art,
@@ -389,3 +392,74 @@ async def test_the_copy_is_independent_of_the_original(
     assert [entry["card"]["name"] for entry in after["cards"]] == ["Eel", "Wolf", "Frog"]
     assert after["origin_id"] == copy["origin_id"]
     assert (await custom_origins(client, bob))[0]["name"] == "Swamp"
+
+
+# --- logging ---
+
+
+async def test_share_and_revoke_are_logged(
+    client: AsyncClient, alice: AuthedUser, logs: list[dict[str, Any]]
+) -> None:
+    deck = await create_deck(client, alice, [])
+    path = f"/api/decks/{deck['id']}"
+
+    code = await share(client, alice, path)
+    await share(client, alice, path)  # the same code again: nothing new is created
+    await client.delete(f"{path}/share", headers=alice.headers)
+
+    (created,) = logged(logs, "share.created")
+    assert (created["kind"], str(created["target_id"]), created["code"]) == (
+        "deck",
+        deck["id"],
+        code,
+    )
+    (revoked,) = logged(logs, "share.revoked")
+    assert (revoked["kind"], str(revoked["target_id"])) == ("deck", deck["id"])
+
+
+async def test_a_code_collision_is_retried_and_logged(
+    client: AsyncClient,
+    alice: AuthedUser,
+    logs: list[dict[str, Any]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    first = await create_deck(client, alice, [], name="First")
+    taken = await share(client, alice, f"/api/decks/{first['id']}")
+    fresh = CODE_ALPHABET[0] * len(taken)
+    codes = iter([taken, fresh])
+    monkeypatch.setattr(share_service, "random_code", lambda _length: next(codes))
+    second = await create_deck(client, alice, [], name="Second")
+
+    code = await share(client, alice, f"/api/decks/{second['id']}")
+
+    assert code == fresh
+    (retry,) = logged(logs, "share.code_retry")
+    assert (retry["kind"], retry["attempt"], retry["log_level"]) == ("deck", 1, "debug")
+
+
+async def test_an_import_is_logged_with_its_steps(
+    client: AsyncClient, alice: AuthedUser, bob: AuthedUser, logs: list[dict[str, Any]]
+) -> None:
+    swamp = await create_origin(client, alice, name="Swamp")
+    group = await create_group(client, alice, "Mix")
+    await create_card(client, alice, name="Toad", origin_id=swamp["id"], group_id=group["id"])
+    await create_card(client, alice, name="Wolf", group_id=group["id"])
+    code = await share(client, alice, f"/api/card-groups/{group['id']}")
+
+    result = await import_code(client, bob, code)
+
+    (imported,) = logged(logs, "share.imported")
+    assert imported["kind"] == "card_group"
+    assert imported["code"] == code
+    assert str(imported["source_id"]) == group["id"]
+    assert str(imported["group_id"]) == result["group"]["id"]
+    assert (imported["cards"], imported["origins"]) == (2, 1)
+    assert imported["user_id"] == str(bob.id)
+    steps = logged(logs, "share.import_step")
+    assert [step["step"] for step in steps] == [
+        "source_loaded",
+        "origins_copied",
+        "cards_copied",
+        "committed",
+    ]
+    assert {step["log_level"] for step in steps} == {"debug"}

@@ -1,8 +1,10 @@
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
+import structlog
 from alembic import command
 from alembic.config import Config
 from httpx import ASGITransport, AsyncClient
@@ -85,6 +87,25 @@ async def db(migrated_database: URL) -> AsyncIterator[AsyncSession]:
                 await conn.rollback()
     finally:
         await engine.dispose()
+
+
+@pytest.fixture(autouse=True)
+def _clear_log_context() -> Iterator[None]:
+    # httpx's ASGITransport runs the app in the test's own task, so the request id and user id
+    # the app binds would otherwise stay on later log lines of the test.
+    structlog.contextvars.clear_contextvars()
+    yield
+    structlog.contextvars.clear_contextvars()
+
+
+@pytest.fixture
+def logs() -> Iterator[list[dict[str, Any]]]:
+    """Every structlog entry logged during the test, DEBUG included, with the request's context
+    (request id, user id) and the logger name. The level is under `log_level`."""
+    processors = [structlog.contextvars.merge_contextvars, structlog.stdlib.add_logger_name]
+    with structlog.testing.capture_logs(processors=processors) as entries:
+        # The same list, which fills up while the test runs; the entries are plain dicts.
+        yield cast(list[dict[str, Any]], entries)
 
 
 @pytest.fixture

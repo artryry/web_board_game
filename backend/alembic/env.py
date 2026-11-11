@@ -1,5 +1,4 @@
 import asyncio
-from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy import pool
@@ -7,16 +6,17 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app.core.config import get_settings
+from app.core.logging_config import configure_logging
 from app.models import Base
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
 
-# Interpret the config file for Python logging. Callers that run migrations in-process
-# (the test suite) opt out, because fileConfig disables every existing logger.
-if config.config_file_name is not None and config.attributes.get("configure_logger", True):
-    fileConfig(config.config_file_name)
+# Migrations log in the app's format (start.sh runs them before uvicorn). Callers that run
+# migrations in-process (the test suite) opt out and keep their own logging.
+if config.attributes.get("configure_logger", True):
+    configure_logging(get_settings())
 
 # The DB URL comes from Settings (.env), never from alembic.ini, unless the caller already set
 # one (the test suite points it at the test database). "%" is escaped because the ini config

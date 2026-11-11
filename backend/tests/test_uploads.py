@@ -11,6 +11,7 @@ from tests.helpers import (
     assert_error,
     create_card,
     create_origin,
+    logged,
 )
 
 MAX_BYTES = 2 * 1024 * 1024
@@ -226,3 +227,31 @@ async def _creature_body(client: AsyncClient, user: AuthedUser) -> dict[str, Any
         "hp": 2,
         "dmg": 2,
     }
+
+
+# --- logging ---
+
+
+async def test_an_upload_ticket_is_logged_without_its_url(
+    client: AsyncClient, alice: AuthedUser, logs: list[dict[str, Any]]
+) -> None:
+    ticket = await _ticket(client, alice, size=1234)
+
+    (line,) = logged(logs, "upload.ticket_issued")
+    assert line["kind"] == "card-art"
+    assert (line["content_type"], line["size"]) == ("image/png", 1234)
+    assert line["art_key"] == ticket["art_key"]
+    assert ticket["upload_url"] not in str(logs)
+
+
+async def test_the_art_check_is_logged_at_debug(
+    client: AsyncClient, alice: AuthedUser, fake_s3: FakeS3, logs: list[dict[str, Any]]
+) -> None:
+    key = await _uploaded_key(client, alice, fake_s3)
+
+    await create_card(client, alice, art_key=key)
+
+    (line,) = logged(logs, "upload.art_checked")
+    assert line["log_level"] == "debug"
+    assert (line["art_key"], line["found"], line["size"]) == (key, True, 1000)
+    assert isinstance(line["duration_ms"], int)

@@ -51,9 +51,13 @@ frontend/
     main.tsx, App.tsx, routes.tsx
     AppShell.tsx         header (app name, nav, username, Log out) around the logged-in pages
     NotFoundPage.tsx
+    RouteErrorPage.tsx   the routes' errorElement: "Something went wrong" and Reload, never a stack
     api/
-      client.ts          openapi-fetch client: bearer header, one shared refresh on token_expired
-      errors.ts          ApiError (code, message, extra, fieldErrors), unwrap() and errorMessage()
+      client.ts          openapi-fetch client: bearer header, one shared refresh on token_expired,
+                         a request id per attempt, and the api.request / api.request_failed logs
+      errors.ts          ApiError (code, message, extra, fieldErrors, requestId), unwrap() and
+                         errorMessage() (a 5xx ends with its error ID)
+      requestId.ts       newRequestId(): the X-Request-ID the server keeps on its log lines
       queryClient.ts     QueryClient defaults (no retries on 4xx)
       schema.d.ts        generated OpenAPI types
       bounds.ts          content input limits copied from the backend schemas (names, stats, art)
@@ -98,6 +102,13 @@ frontend/
                          Hand, HandCard, OpponentHand, DeckPile, ManaBar,
                          PhaseTracker, TurnTimer, ActionLog, GameOverModal
       history/           GamesPage, ReplayViewer
+    log/                 logging (§6.1); imports nothing at runtime from api/ or auth/
+      logger.ts          log.debug/info/warn/error(event, fields, error), redaction, breadcrumbs
+      consoleSink.ts     the only file allowed to call console (ESLint no-console)
+      remoteSink.ts      production: warnings and errors to POST /api/client-logs, in batches
+      errorHandlers.ts   window errors, unhandled rejections, React's root hooks, the router's onError
+      pageViews.ts       nav.page_viewed breadcrumbs from the router
+      serializeError.ts, installLogging.ts (called in main.tsx)
     ws/
       socket.ts          RoomSocket: connect, reconnect with backoff, seq, resync
       gameStore.ts       Zustand store for room and game state
@@ -106,7 +117,8 @@ frontend/
                          InUseList, LoadingState, Spinner, CardFrame; later Toast, Tabs, HpBar
     styles/              index.css: Tailwind and the @theme design tokens
     test/                Vitest setup, MSW fake API (auth handlers, content handlers over an in-memory
-                         store, a catalog fixture, a fake R2), renderApp and renderWithForm helpers
+                         store, a catalog fixture, a fake R2), renderApp and renderWithForm helpers,
+                         logCapture (a memory log sink: tests check entries, the console stays quiet)
   e2e/                   Playwright specs (and global-setup.ts, which checks /api/health)
 ```
 
@@ -258,6 +270,24 @@ frontend/
   - refreshes the JWT before reconnecting if it has expired
 - The Zustand `gameStore` holds `connection`, `room`, `view`, `version`, `legalActions` (with the index), `eventQueue`, `pendingAction`, `deadline` and `result`.
 - REST data (cards, decks, rulesets) stays in TanStack Query. Only live room and game state goes in Zustand.
+
+### 6.1 Logging
+
+Built 2026-11-11, with the server side (backend_plan §10.2).
+- **`log` from `@/log/logger`** is the only way to log: `log.warn("api.request_failed", { status, request_id })`. Event names follow the server's `<area>.<what_happened>`, and the fields are flat values. Keys that look secret (password, token, cookie, upload_url, access, refresh, …) are redacted, and JWTs inside text too. Never log the presigned upload URL, a token, or a request body.
+- **Where entries go:** dev prints every level to the console; production prints warnings and errors, and sends them to `POST /api/client-logs` in batches of up to 10, sent every 5 s and kept under 48 KiB. What is left goes with `keepalive` on `pagehide`. Repeats within a minute are counted, not resent; a token bucket (10 at once, 20 more per 5 minutes) stops a flood. The sink never sends its own failures.
+- **Breadcrumbs:** the logger keeps the last 20 entries of every level, including the debug events `nav.page_viewed` (the route pattern) and `api.request` (method, path, status, duration, request id). An error entry carries them, so its server line shows the steps that led to it.
+- **Request ids:** `api/client.ts` sends a new `X-Request-ID` on every attempt (a retry after a refresh gets its own). `ApiError.requestId` keeps the answer's id, and the message of a 5xx ends with "(error ID: 3f2a9c1e)", its first 8 characters.
+- **Events today:**
+  - `api.request` (debug)
+  - `api.request_failed`: warn for a 5xx or a network error. A 4xx shows only on the debug `api.request`, and a cancelled query isn't logged.
+  - `auth.session_expired` (info), `auth.restore_failed` (warn) and `auth.logout_cookie_clear_failed` (warn)
+  - `upload.put_failed` (warn: status, type and size, never the URL)
+  - `ui.render_error`, `ui.uncaught_error` and `ui.recoverable_error`
+  - `window.error` and `window.unhandled_rejection`
+  - `nav.page_viewed` (debug)
+- **Errors** are caught in one place (`log/errorHandlers.ts`) and logged once each: React's root hooks, the router's `onError`, window `error` (bubble phase; "Script error." and extensions are skipped) and `unhandledrejection`. A route that throws shows `RouteErrorPage`.
+- **For F4–F5:** `RoomSocket` logs `ws.connected`, `ws.reconnecting` (attempt, delay), `ws.closed` (code), `ws.server_error` (`reason`, `seq`) and `game.stale_state_dropped`, never the URL with its token.
 
 ## 7. Milestones (each one depends on the backend milestone named)
 

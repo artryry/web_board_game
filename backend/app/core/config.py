@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, HttpUrl, SecretStr, field_validator
+from pydantic import Field, HttpUrl, SecretStr, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
@@ -72,6 +72,21 @@ class Settings(BaseSettings):
     # The built frontend (frontend/dist). Set in the production image, where the API serves the
     # app itself; unset in development, where nginx sends page requests to the Vite dev server.
     frontend_dist_dir: Path | None = None
+
+    # Our own loggers only: third-party libraries stay at WARNING, since botocore's DEBUG output
+    # includes signed request headers.
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+    # "auto" writes coloured lines in a terminal and JSON lines otherwise (Docker, Render).
+    log_format: Literal["auto", "console", "json"] = "auto"
+    # Set by Render on every deploy; the startup line shows which commit is running.
+    render_git_commit: str | None = None
+
+    @field_validator("log_level", "log_format", mode="before")
+    @classmethod
+    def _any_case(cls, value: object, info: ValidationInfo) -> object:
+        if not isinstance(value, str):
+            return value
+        return value.upper() if info.field_name == "log_level" else value.lower()
 
     @field_validator("database_url", mode="before")
     @classmethod

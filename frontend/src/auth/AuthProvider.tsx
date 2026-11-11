@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, clearRefreshCookie, refreshSession } from "@/api/client";
 import { unwrap } from "@/api/errors";
 import type { components } from "@/api/schema";
+import { log } from "@/log/logger";
 import { Spinner } from "@/ui/Spinner";
 
 import {
@@ -59,9 +60,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .then((user) => {
         if (active && user !== null) setState({ status: "authenticated", user });
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         // The server couldn't be reached: show the login page. The cookie and the hint are
         // kept, so a reload can still restore the session.
+        log.warn("auth.restore_failed", {}, error);
         if (active) setState({ status: "anonymous", reason: "expired" });
       });
     return () => {

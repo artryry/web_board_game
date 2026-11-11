@@ -6,6 +6,8 @@
  * other tabs about a logout.
  */
 
+import { log } from "@/log/logger";
+
 export const SESSION_HINT_KEY = "cardtable.session";
 
 /** Why a session ended: the user logged out (here or in another tab), or it couldn't be renewed. */
@@ -47,6 +49,7 @@ export function getGeneration(): number {
 
 /** Ends the session in this tab. Deleting the refresh cookie is the server's job (`logout`). */
 export function endSession(reason: SessionEndReason): void {
+  if (reason === "expired") log.info("auth.session_expired");
   accessToken = null;
   generation += 1;
   try {

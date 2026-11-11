@@ -1,3 +1,5 @@
+import { log } from "@/log/logger";
+
 import { api } from "./client";
 import { unwrap } from "./errors";
 
@@ -24,6 +26,9 @@ export async function uploadArt(kind: ArtKind, file: File): Promise<string> {
       : await api.POST("/api/uploads/origin-art", { body }),
   );
 
+  // Never the upload URL: it grants write access to the bucket until it expires. No request id
+  // header either, since the bucket's CORS rule would refuse it.
+  const fields = { kind, content_type: file.type, size: file.size, art_key: ticket.art_key };
   let response: Response;
   try {
     response = await fetch(ticket.upload_url, {
@@ -33,11 +38,13 @@ export async function uploadArt(kind: ArtKind, file: File): Promise<string> {
     });
   } catch (error) {
     // A network error, or the bucket refusing this origin (its CORS rule).
+    log.warn("upload.put_failed", { ...fields, network: true }, error);
     throw new ArtUploadError("Couldn't upload the image. Check your connection and try again.", {
       cause: error,
     });
   }
   if (!response.ok) {
+    log.warn("upload.put_failed", { ...fields, status: response.status });
     throw new ArtUploadError(`The image upload failed (HTTP ${response.status}). Try again.`);
   }
   return ticket.art_key;

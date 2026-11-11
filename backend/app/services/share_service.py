@@ -10,6 +10,7 @@ from sqlalchemy.orm import InstrumentedAttribute
 from app.core.codes import random_code
 from app.core.config import Settings
 from app.core.errors import AppError
+from app.core.logging_config import StepTimer, get_logger
 from app.models.card import Card
 from app.models.card_group import CardGroup
 from app.models.deck import Deck, DeckCard
@@ -28,10 +29,17 @@ from app.schemas.share import (
 )
 from app.services import card_group_service, card_service, deck_service, origin_service
 
+log = get_logger(__name__)
+
 # A collision needs two equal 10-character codes (about 50 bits), so retries are a formality.
 _MAX_CODE_ATTEMPTS = 5
 
 TargetColumn = InstrumentedAttribute[UUID | None]
+
+
+def _kind(column: TargetColumn) -> str:
+    """The kind named in log lines: "deck" or "card_group"."""
+    return column.key.removesuffix("_id")
 
 
 # --- share and revoke ---
@@ -39,7 +47,7 @@ TargetColumn = InstrumentedAttribute[UUID | None]
 
 async def _get_or_create(db: AsyncSession, column: TargetColumn, target_id: UUID) -> str:
     """The target's code, made on first use. Sharing again returns the same code."""
-    for _ in range(_MAX_CODE_ATTEMPTS):
+    for attempt in range(1, _MAX_CODE_ATTEMPTS + 1):
         existing = await db.scalar(select(ShareCode.code).where(column == target_id))
         if existing is not None:
             return existing
@@ -50,8 +58,10 @@ async def _get_or_create(db: AsyncSession, column: TargetColumn, target_id: UUID
         except IntegrityError:
             # Either a concurrent request shared the same target (the next pass returns its
             # code), or the random code is taken (the next pass draws another one).
+            log.debug("share.code_retry", kind=_kind(column), attempt=attempt)
             continue
         await db.commit()
+        log.info("share.created", kind=_kind(column), target_id=target_id, code=share.code)
         return share.code
     raise RuntimeError("Couldn't store a share code")
 
@@ -59,6 +69,7 @@ async def _get_or_create(db: AsyncSession, column: TargetColumn, target_id: UUID
 async def _revoke(db: AsyncSession, column: TargetColumn, target_id: UUID) -> None:
     await db.execute(delete(ShareCode).where(column == target_id))
     await db.commit()
+    log.info("share.revoked", kind=_kind(column), target_id=target_id)
 
 
 async def share_deck(db: AsyncSession, user_id: UUID, deck_id: UUID) -> str:
@@ -158,6 +169,11 @@ async def preview(db: AsyncSession, settings: Settings, code: str) -> SharePrevi
 # --- import ---
 
 
+def _copied_count(origin_ids: dict[UUID, UUID]) -> int:
+    """How many origins were copied: system origins map to themselves."""
+    return sum(1 for source_id, target_id in origin_ids.items() if source_id != target_id)
+
+
 async def _copy_origins(
     db: AsyncSession, user_id: UUID, origin_ids: Iterable[UUID]
 ) -> dict[UUID, UUID]:
@@ -236,20 +252,25 @@ async def _commit_import(db: AsyncSession, user_id: UUID, group: CardGroup | Non
 
 
 async def _import_deck(
-    db: AsyncSession, settings: Settings, user_id: UUID, deck_id: UUID
+    db: AsyncSession, settings: Settings, user_id: UUID, share: ShareCode
 ) -> DeckImported:
-    source = await deck_service.load_deck(db, deck_id)
+    assert share.deck_id is not None
+    steps = StepTimer(log, "share.import_step")
+    source = await deck_service.load_deck(db, share.deck_id)
     entries = sorted(source.cards, key=lambda entry: card_service.card_sort_key(entry.card))
     cards = [entry.card for entry in entries]
+    steps.done("source_loaded", kind="deck", cards=len(cards))
     origin_ids = await _copy_origins(
         db, user_id, {source.origin_id, *(card.origin_id for card in cards)}
     )
+    steps.done("origins_copied", origins=_copied_count(origin_ids))
 
     # The deck's cards go into a group named after it, so the library stays tidy.
     group: CardGroup | None = None
     copies: dict[UUID, Card] = {}
     if cards:
         group, copies = await _copy_cards(db, user_id, source.name, cards, origin_ids)
+    steps.done("cards_copied", cards=len(copies))
 
     deck = Deck(
         owner_id=user_id,
@@ -259,16 +280,41 @@ async def _import_deck(
     )
     db.add(deck)
     await _commit_import(db, user_id, group)
+    steps.done("committed")
+    log.info(
+        "share.imported",
+        kind="deck",
+        code=share.code,
+        source_id=source.id,
+        deck_id=deck.id,
+        group_id=group.id if group is not None else None,
+        cards=len(copies),
+        origins=_copied_count(origin_ids),
+    )
     deck = await deck_service.load_deck(db, deck.id)
     return DeckImported(deck=deck_service.deck_out(deck, settings))
 
 
 async def _import_group(db: AsyncSession, user_id: UUID, share: ShareCode) -> CardGroupImported:
+    steps = StepTimer(log, "share.import_step")
     source = await _shared_group(db, share)
     cards = await _group_cards(db, source.id)
+    steps.done("source_loaded", kind="card_group", cards=len(cards))
     origin_ids = await _copy_origins(db, user_id, (card.origin_id for card in cards))
-    group, _ = await _copy_cards(db, user_id, source.name, cards, origin_ids)
+    steps.done("origins_copied", origins=_copied_count(origin_ids))
+    group, copies = await _copy_cards(db, user_id, source.name, cards, origin_ids)
+    steps.done("cards_copied", cards=len(copies))
     await _commit_import(db, user_id, group)
+    steps.done("committed")
+    log.info(
+        "share.imported",
+        kind="card_group",
+        code=share.code,
+        source_id=source.id,
+        group_id=group.id,
+        cards=len(copies),
+        origins=_copied_count(origin_ids),
+    )
     # Loads card_count and share_code, which aren't set on a freshly inserted row.
     await db.refresh(group)
     return CardGroupImported(group=CardGroupOut.model_validate(group))
@@ -282,5 +328,5 @@ async def import_share(
     Importing your own code works as "duplicate"."""
     share = await _resolve(db, code)
     if share.deck_id is not None:
-        return await _import_deck(db, settings, user_id, share.deck_id)
+        return await _import_deck(db, settings, user_id, share)
     return await _import_group(db, user_id, share)

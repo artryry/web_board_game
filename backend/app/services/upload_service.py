@@ -1,10 +1,14 @@
 import re
+import time
 from uuid import UUID
 
 from app.core.config import Settings
 from app.core.errors import AppError
+from app.core.logging_config import elapsed_ms, get_logger
 from app.schemas.upload import UploadRequest, UploadTicket
 from app.storage.client import ArtKind, S3Client, head_object, make_art_key, presign_put
+
+log = get_logger(__name__)
 
 ART_CONTENT_TYPES = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
 
@@ -32,6 +36,14 @@ async def request_upload(
     upload_url = await presign_put(
         s3, settings.r2_bucket, key, data.content_type, settings.upload_url_ttl_s
     )
+    # Never the URL: it grants write access to the bucket until it expires.
+    log.info(
+        "upload.ticket_issued",
+        kind=kind,
+        content_type=data.content_type,
+        size=data.size,
+        art_key=key,
+    )
     return UploadTicket(upload_url=upload_url, art_key=key, expires_in=settings.upload_url_ttl_s)
 
 
@@ -46,7 +58,16 @@ async def verify_art_key(
     if re.fullmatch(pattern, key) is None:
         raise AppError(422, "invalid_art_key", "This art key wasn't issued to you for this use")
 
+    started = time.perf_counter()
     info = await head_object(s3, settings.r2_bucket, key)
+    log.debug(
+        "upload.art_checked",
+        art_key=key,
+        found=info is not None,
+        size=info.size if info is not None else None,
+        content_type=info.content_type if info is not None else None,
+        duration_ms=elapsed_ms(started),
+    )
     if info is None:
         raise AppError(422, "invalid_art_key", "The art hasn't been uploaded yet")
     if info.size > settings.upload_max_bytes:
