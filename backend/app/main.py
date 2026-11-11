@@ -1,3 +1,6 @@
+import asyncio
+import contextlib
+import contextvars
 from collections.abc import AsyncGenerator
 from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
@@ -12,9 +15,16 @@ from app.core.errors import register_error_handlers
 from app.core.logging_config import configure_logging, get_logger
 from app.core.middleware import RequestContextMiddleware
 from app.frontend import mount_frontend
+from app.services import art_cleanup_service
 from app.storage.client import create_s3_client
 
 log = get_logger(__name__)
+
+
+async def _cancel(task: asyncio.Task[None]) -> None:
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
 
 
 @asynccontextmanager
@@ -39,11 +49,24 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
         app.state.s3 = await stack.enter_async_context(create_s3_client(settings))
 
+        if settings.art_sweep_enabled:
+            # An empty context, so the task's lines never carry another request's ids.
+            sweep_task = asyncio.create_task(
+                art_cleanup_service.sweep_forever(
+                    app.state.session_factory, redis, app.state.s3, settings
+                ),
+                name="art_sweep",
+                context=contextvars.Context(),
+            )
+            # Pushed last, so it is cancelled before the clients it uses are closed.
+            stack.push_async_callback(_cancel, sweep_task)
+
         log.info(
             "app.started",
             log_level=settings.log_level,
             log_format=settings.log_format,
             commit=settings.render_git_commit,
+            art_sweep=settings.art_sweep_enabled,
         )
         yield
         log.info("app.stopped")

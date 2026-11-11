@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -9,6 +10,8 @@ from pydantic import HttpUrl, SecretStr
 from app.core.config import Settings
 
 PUBLIC_BASE_URL = "https://art.test"
+# When FakeS3 objects were written, unless a test says otherwise.
+UPLOADED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 def make_settings(**overrides: Any) -> Settings:
@@ -66,13 +69,23 @@ def assert_error(response: Response, status_code: int, code: str) -> dict[str, A
 
 @dataclass
 class FakeS3:
-    """Stands in for the R2 client: records presign calls and serves `head_object`."""
+    """Stands in for the R2 client: records presign calls, and serves `head_object`,
+    `list_objects_v2` (`page_size` keys a page) and `delete_object` (failing for the keys in
+    `failing_deletes`)."""
 
     objects: dict[str, dict[str, Any]] = field(default_factory=dict)
     presigned: list[dict[str, Any]] = field(default_factory=list)
+    page_size: int = 1000
+    failing_deletes: set[str] = field(default_factory=set)
 
-    def put(self, key: str, size: int, content_type: str) -> None:
-        self.objects[key] = {"ContentLength": size, "ContentType": content_type}
+    def put(
+        self, key: str, size: int, content_type: str, last_modified: datetime = UPLOADED_AT
+    ) -> None:
+        self.objects[key] = {
+            "ContentLength": size,
+            "ContentType": content_type,
+            "LastModified": last_modified,
+        }
 
     async def generate_presigned_url(
         self,
@@ -87,6 +100,34 @@ class FakeS3:
         if Key not in self.objects:
             raise ClientError({"Error": {"Code": "404", "Message": "Not Found"}}, "HeadObject")
         return self.objects[Key]
+
+    async def list_objects_v2(
+        self,
+        Bucket: str,  # noqa: N803
+        Prefix: str,  # noqa: N803
+        ContinuationToken: str | None = None,  # noqa: N803
+    ) -> dict[str, Any]:
+        keys = sorted(key for key in self.objects if key.startswith(Prefix))
+        start = int(ContinuationToken or 0)
+        page = keys[start : start + self.page_size]
+        truncated = start + self.page_size < len(keys)
+        response: dict[str, Any] = {"KeyCount": len(page), "IsTruncated": truncated}
+        # Like S3, an empty page has no Contents at all.
+        if page:
+            response["Contents"] = [
+                {"Key": key, "LastModified": self.objects[key]["LastModified"]} for key in page
+            ]
+        if truncated:
+            response["NextContinuationToken"] = str(start + self.page_size)
+        return response
+
+    async def delete_object(self, Bucket: str, Key: str) -> dict[str, Any]:  # noqa: N803
+        if Key in self.failing_deletes:
+            raise ClientError(
+                {"Error": {"Code": "InternalError", "Message": "Internal error"}}, "DeleteObject"
+            )
+        self.objects.pop(Key, None)
+        return {}
 
 
 def uploaded_art(fake_s3: FakeS3, kind: str, user: AuthedUser) -> str:

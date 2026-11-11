@@ -305,6 +305,8 @@ Done: F0 and F1 (2026-11-10).
 
 Tip: build the board in F5 against **mock `game_state` JSON fixtures** first (and reuse the backend's golden-replay fixtures), so UI work doesn't have to wait for the live WebSocket.
 
+**Missing art (F5, F6):** game and replay snapshots hold art keys, but they don't keep the objects in R2 alive (backend_plan §10.3). A card deleted mid-game, or replayed after it was deleted, has a URL that answers 404. On the board and in the replay viewer, a card's art falls back to the no-art look when the image fails to load (`onError`). It never shows a broken image.
+
 ## 8. Testing
 
 - **Unit tests:** `SchemaForm` (each supported schema type), the cost-suggestion function (the same cases as the backend tests), and the `gameStore` reducers and `legal_actions` index.

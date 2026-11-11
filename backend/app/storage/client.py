@@ -1,6 +1,7 @@
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from datetime import datetime
 from enum import StrEnum
 from typing import Any
 from uuid import UUID, uuid4
@@ -39,6 +40,12 @@ class ArtKind(StrEnum):
 class ObjectInfo:
     size: int
     content_type: str | None
+
+
+@dataclass(frozen=True)
+class StoredObject:
+    key: str
+    last_modified: datetime
 
 
 @asynccontextmanager
@@ -89,6 +96,28 @@ async def head_object(s3: S3Client, bucket: str, key: str) -> ObjectInfo | None:
             return None
         raise
     return ObjectInfo(size=int(response["ContentLength"]), content_type=response.get("ContentType"))
+
+
+async def list_objects(s3: S3Client, bucket: str, prefix: str) -> AsyncIterator[StoredObject]:
+    """Every object under `prefix`, fetched a page (up to 1000 keys) at a time."""
+    params = {"Bucket": bucket, "Prefix": prefix}
+    while True:
+        response = await s3.list_objects_v2(**params)
+        for item in response.get("Contents", []):
+            yield StoredObject(key=item["Key"], last_modified=item["LastModified"])
+        token = response.get("NextContinuationToken")
+        if not response.get("IsTruncated") or token is None:
+            return
+        params["ContinuationToken"] = token
+
+
+async def delete_object(s3: S3Client, bucket: str, key: str) -> None:
+    """Deletes one object. A missing key is not an error (S3 answers 204 either way).
+
+    One request per key: the multi-delete call needs a request checksum, and the few objects a
+    cleanup removes don't need it.
+    """
+    await s3.delete_object(Bucket=bucket, Key=key)
 
 
 def public_url(base_url: object, key: str) -> str:

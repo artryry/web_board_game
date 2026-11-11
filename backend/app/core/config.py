@@ -56,6 +56,18 @@ class Settings(BaseSettings):
     upload_max_bytes: int = Field(default=2 * 1024 * 1024, gt=0)
     upload_url_ttl_s: int = Field(default=300, ge=60, le=3600)
 
+    # The daily sweep that deletes art no card or origin references (backend_plan §10.3). Off by
+    # default: turn it on only where the database and the bucket belong together, or every
+    # object would look unused.
+    art_sweep_enabled: bool = False
+    art_sweep_interval_h: int = Field(default=24, ge=1)
+    # Younger objects are kept, since their card or origin may not be saved yet. At least an
+    # hour, the longest an upload URL lives.
+    art_sweep_grace_h: int = Field(default=24, ge=1)
+    # Above this many unused objects the sweep deletes nothing and warns: so many at once more
+    # likely means the wrong database than real garbage.
+    art_sweep_max_deletes: int = Field(default=200, ge=1)
+
     # HMAC algorithms only, since the secret is symmetric. 32 chars = 256 bits, the minimum
     # key size for HS256 (RFC 7518 §3.2).
     jwt_secret: SecretStr = Field(min_length=32)

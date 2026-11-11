@@ -211,8 +211,9 @@ async def _copy_cards(
     """Copies `cards` into a new group of the user's; maps each source card id to its copy.
 
     The copies are written directly, not through the card service: the content was checked when
-    it was saved, and the art key stays the author's (art objects are never deleted). A later
-    edit that keeps the key doesn't check it again.
+    it was saved. The art key stays the author's, so the copy shares the object, which the art
+    sweep keeps while any row uses it (backend_plan §10.3). A later edit that keeps the key
+    doesn't check it again.
     """
     group = CardGroup(
         owner_id=user_id, name=await card_group_service.free_name(db, user_id, group_name)

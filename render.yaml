@@ -38,3 +38,7 @@ services:
       # One JSON object per line in Render's log viewer (context/deployment.md, Reading the logs).
       - key: LOG_FORMAT
         value: json
+      # The daily sweep of art that no card or origin references (backend_plan §10.3). Safe here
+      # because the database and the bucket are production's own pair.
+      - key: ART_SWEEP_ENABLED
+        value: "true"

@@ -76,7 +76,8 @@ async def test_imported_copies_outlive_the_author(
     after = await client.get(f"/api/decks/{copy['id']}", headers=bob.headers)
     preview = await client.get(f"/api/share/{code}", headers=bob.headers)
     assert after.status_code == 200, after.text
-    # Unchanged, art included: the copies share the author's art key, and art is never deleted.
+    # Unchanged, art included: the copies share the author's art key, which keeps the object
+    # alive (test_art_cleanup.py).
     assert after.json() == copy
     assert any(entry["card"]["art_url"] for entry in copy["cards"])
     assert_error(preview, 404, "share_not_found")

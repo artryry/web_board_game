@@ -46,6 +46,10 @@ Deployment is set up (2026-11-10, see §10.1):
 - a root `Dockerfile` (it builds the frontend; the API serves it), `render.yaml`, `backend/scripts/start.sh` and GitHub Actions CI
 - `app/frontend.py`, `GET /api/health/live`, Neon-style `DATABASE_URL`s accepted, `REDIS_PASSWORD` optional, dev tools moved to `requirements-dev.txt`
 
+Art cleanup is built (2026-11-11, see §10.3):
+- `services/art_cleanup_service.py`: a daily sweep, started from the lifespan when `ART_SWEEP_ENABLED` is set, deletes art objects that no card or origin references
+- `scripts/sweep_art.py` runs the sweep by hand, as a dry run unless `--delete` is passed
+
 ## 2. Stack
 
 | Concern | Choice |
@@ -105,6 +109,7 @@ backend/
       origin_service.py / card_service.py / card_group_service.py / deck_service.py
                        content CRUD and rules
       upload_service.py   presigned art uploads, art-key checks on save
+      art_cleanup_service.py  the daily sweep of art no row references (§10.3)
       room_service.py  room lifecycle: Redis <-> engine glue, timers
       share_service.py share codes, forking imports
       client_log_service.py  the browser's warnings and errors as `web.*` lines, rate-limited
@@ -114,6 +119,7 @@ backend/
       handler.py       /ws/rooms/{code} endpoint
   alembic/
   scripts/start.sh     production entrypoint: migrations, then uvicorn
+  scripts/sweep_art.py the art sweep by hand: python -m scripts.sweep_art [--delete] (§10.3)
   tests/
   requirements.txt     runtime packages (what the image installs)
   requirements-dev.txt + tests, ruff, mypy
@@ -186,7 +192,8 @@ Notes:
   - `deck_cards.card_id` can't be `RESTRICT`. Postgres deletes a user's cards (a direct cascade) before their `deck_cards` rows (a cascade through `decks`), and an immediate check fails in between. A deferred check runs at COMMIT, after every cascade, and still refuses a card that a deck holds.
   - The origin FKs can stay `RESTRICT`, because cards and decks are direct cascades from `users`, so they are gone before an origin's check runs.
   - Tests never commit, so they bring the deferred check forward with `SET CONSTRAINTS ALL IMMEDIATE`.
-- **Forks outlive their source.** An imported copy points only at its own copied origins (or system origins), so the author can delete the original origin, deck or group, or their whole account, and the copy stays as it is. It keeps the author's `art_key`, which keeps working because art objects are never deleted (§13).
+- **Forks outlive their source.** An imported copy points only at its own copied origins (or system origins), so the author can delete the original origin, deck or group, or their whole account, and the copy stays as it is. It keeps the author's `art_key`, and the object stays as long as any row references it (§10.3).
+- **Art objects** are deleted by a daily sweep once no `cards.art_key` or `origins.background_art_key` references them and they are older than 24 h (§10.3). The `games` deck snapshots (M6, M7) hold art keys but don't keep the objects alive: a card deleted mid-game or replayed later can show the no-art look.
 
 ## 5. Module registry
 
@@ -567,12 +574,38 @@ Agreed and built 2026-11-11. Reading the logs is in [deployment.md](deployment.m
   - `upload.ticket_issued`, and `upload.art_checked` (DEBUG)
   - `share.created`, `share.revoked`, `share.imported`, `share.code_retry` (DEBUG), and `share.import_step` (DEBUG, one per step with its duration, through `StepTimer`)
   - `health.check_failed` and `client_logs.dropped`
+  - the art sweep (§10.3): `art.swept`, `art.deleted`, `art.would_delete` (dry run), `art.sweep_aborted` and `art.delete_failed` (WARNING), `art.sweep_failed` (ERROR), and `art.sweep_skipped` (DEBUG)
 - **A caught exception that the request survives** is logged: WARNING when it's unexpected, DEBUG for a normal race.
 - **Never logged:** passwords and hashes, tokens, the `Authorization`, `Cookie` and `Set-Cookie` headers, presigned URLs, secrets, emails, request and response bodies, query strings, and traceback locals. A redaction step replaces secret-looking keys at any depth and scrubs JWTs, `token=` values, `X-Amz-*` signatures and `user:pass@` in URLs, also inside tracebacks. The engine runs with `hide_parameters=True`.
 - **The engine never logs** (`tests/engine/test_no_logging.py`); the services that run it log its outcomes.
-- **Background tasks (M6)** start with an empty log context (`asyncio.create_task(..., context=contextvars.Context())`), bind their own `room_code` and `game_id`, and run through a wrapper that logs their exception at ERROR.
+- **Background tasks** start with an empty log context (`asyncio.create_task(..., context=contextvars.Context())`), and log their own exception at ERROR. M6's tasks bind their own `room_code` and `game_id`, and run through a wrapper that does this. The art sweep's loop (§10.3), the first background task, logs its failures itself.
 - **WebSocket events (M6):** a socket lasts a whole game, so it logs per message: `ws.connected`, `ws.closed` (duration, close code), `game.started`, `game.ended`, `game.action_rejected` (INFO, with the reason), `game.action_applied` (DEBUG), `timer.expired` and `ws.resync`, each with `room_code` and `game_id`.
 - **Browser logs:** `POST /api/client-logs` (§8) writes each entry on `app.client` as `web.<event>`, with `source="web"`, the page, the browser's time, its `context` and `breadcrumbs` nested, and the user from a valid token (decoded only, no database query). The limit is kept in process (one worker): 60 entries a minute per user or IP, and 600 overall.
+
+### 10.3 Art cleanup
+
+Agreed and built 2026-11-11. Running it and troubleshooting are in [deployment.md](deployment.md).
+
+Art used to be kept forever. Orphans come from deleted cards and origins, art that is replaced or cleared, deleted accounts (an SQL cascade that no app code sees), and abandoned uploads (each file pick uploads at once, so a replaced pick or a closed editor leaves an object no row ever pointed to). Imported copies share the author's key (§4), so only a look at every row can tell an object is unused.
+
+- **One daily sweep** (`art_cleanup_service.sweep`) covers every kind of orphan. Nothing is deleted inline when a card or origin goes.
+  1. List the objects under `card-art/` and `origin-art/`, page by page. Only keys with the full art-key shape (`upload_service.is_art_key`) count, so nothing else in the bucket is touched.
+  2. Skip objects whose `LastModified` is newer than the grace period (`ART_SWEEP_GRACE_H`, 24 h). Their card or origin may not be saved yet.
+  3. Read every non-null `cards.art_key` and `origins.background_art_key`, from every user. This happens **after** the listing, so an import that commits while the listing runs is still seen.
+  4. If more objects are old and unused than `ART_SWEEP_MAX_DELETES` (200), delete nothing and log `art.sweep_aborted`. A database paired with the wrong bucket would see every object as unused.
+  5. Otherwise delete each one with a single `DeleteObject`, since the multi-delete call needs a request checksum. A failed delete is logged, and the next sweep retries it.
+- **`referenced_art_keys`** is the one list of art-key columns. A new column that holds an art key must be added there. Game snapshots are left out on purpose.
+- **In the app:** with `ART_SWEEP_ENABLED=true` (production only, from `render.yaml`), the lifespan starts one task in an empty log context.
+  - It checks 60 s after startup, then hourly.
+  - Each check is `SET art_sweep:last_run <now> NX EX <ART_SWEEP_INTERVAL_H>`, and only the check that sets the key sweeps. So the sweep runs at most once a day, across restarts and overlapping deploys.
+  - A failure is logged as `art.sweep_failed`, and the loop goes on. The task is cancelled before the clients close.
+  - It runs only while Render keeps the service awake, so it adds no Neon wake-ups and one Upstash command per hour awake.
+- **By hand:** `python -m scripts.sweep_art`. It is a dry run unless `--delete` is passed. `--grace-hours` and `--max-deletes` override the settings, and `ART_SWEEP_ENABLED` is ignored.
+- **Off by default** in development and tests. Production has its own bucket (`card-art-prod`).
+- **Known limits:**
+  - An import mid-transaction, while the author deletes the source card and the sweep reads the references in that same moment, leaves the copy without art. The owner can upload it again.
+  - An editor left open more than 24 h after a pick gets `invalid_art_key` on Save.
+  - Game snapshots don't keep art alive (§4). The board and replays (F5, F6) fall back to the no-art look when an image fails to load.
 
 ## 11. Milestones
 
@@ -588,6 +621,8 @@ Agreed and built 2026-11-11. Reading the logs is in [deployment.md](deployment.m
 | M7 | Match history, replay data, polish | `GET /api/games/{id}` can be replayed exactly |
 
 The frontend milestones (F0–F6) in [frontend_plan.md](frontend_plan.md) are designed to start once the matching backend milestone is done.
+
+Some cross-cutting features were built between milestones, outside this table: deployment (§10.1), logging (§10.2) and art cleanup (§10.3).
 
 ## 12. Testing
 

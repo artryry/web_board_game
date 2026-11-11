@@ -16,6 +16,21 @@ _UUID_PATTERN = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 _EXTENSION_PATTERN = "|".join(ART_CONTENT_TYPES.values())
 
 
+def _art_key_pattern(kind: str, user_id: str) -> str:
+    """The shape make_art_key gives, `{kind}/{user_id}/{uuid}.{ext}`; both parts are regexes."""
+    return rf"{kind}/{user_id}/{_UUID_PATTERN}\.(?:{_EXTENSION_PATTERN})"
+
+
+_ANY_ART_KEY = re.compile(
+    _art_key_pattern(f"(?:{'|'.join(re.escape(kind) for kind in ArtKind)})", _UUID_PATTERN)
+)
+
+
+def is_art_key(key: str) -> bool:
+    """Whether `key` has the shape of an art key this service hands out, for any user or kind."""
+    return _ANY_ART_KEY.fullmatch(key) is not None
+
+
 def _check_size(size: int, settings: Settings) -> None:
     if size > settings.upload_max_bytes:
         raise AppError(
@@ -54,8 +69,7 @@ async def verify_art_key(
 
     A presigned PUT can't cap the size on R2, so the stored object is checked here as well.
     """
-    pattern = rf"{re.escape(kind)}/{user_id}/{_UUID_PATTERN}\.(?:{_EXTENSION_PATTERN})"
-    if re.fullmatch(pattern, key) is None:
+    if re.fullmatch(_art_key_pattern(re.escape(kind), str(user_id)), key) is None:
         raise AppError(422, "invalid_art_key", "This art key wasn't issued to you for this use")
 
     started = time.perf_counter()

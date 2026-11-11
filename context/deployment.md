@@ -87,8 +87,9 @@ Production values live **only** in the Render dashboard (service → **Environme
 | `LOG_FORMAT` | `json`, from `render.yaml` (`value:`, not a secret). |
 | `LOG_LEVEL` | Not set (INFO). Set `DEBUG` while chasing a problem, then remove it; changing a variable redeploys. It applies to the app's own loggers only. |
 | `RENDER_GIT_COMMIT` | Set by Render (if present); the `app.started` line shows it. |
+| `ART_SWEEP_ENABLED` | `true`, from `render.yaml`: the daily art sweep (see [Art cleanup](#art-cleanup)). `app.started` shows `art_sweep`. |
 
-The rest (`ACCESS_TOKEN_TTL_MIN`, `REFRESH_TOKEN_TTL_DAYS`, `REFRESH_COOKIE_SECURE=true`, upload limits, …) use the defaults in `core/config.py`. Add one in Render only to override it.
+The rest (`ACCESS_TOKEN_TTL_MIN`, `REFRESH_TOKEN_TTL_DAYS`, `REFRESH_COOKIE_SECURE=true`, upload limits, `ART_SWEEP_INTERVAL_H`, `ART_SWEEP_GRACE_H`, `ART_SWEEP_MAX_DELETES`, …) use the defaults in `core/config.py`. Add one in Render only to override it.
 
 ## Health endpoints
 
@@ -110,10 +111,27 @@ The API writes one JSON object per line (backend_plan §10.2). Every line starts
 | Errors from browsers | `"logger":"app.client"`, or `"event":"web.`. Each line has `page`, `context` and, for errors, `breadcrumbs`: the pages and API calls just before it. |
 | What an import did | `share.imported`. With `LOG_LEVEL=DEBUG`, also `share.import_step` with each step's time. |
 | A deploy starting | `app.started` (the `commit` it runs), and Alembic's migration lines before it |
+| What the art sweep deleted | `art.swept` (the counts, once a day while the app is awake) and `art.deleted` (one per key) |
 
 Every API request has one `http.request` line with `method`, `path`, `route`, `status`, `duration_ms`, `user_id` and, for an error answer, `error_code`. 4xx answers are INFO, since they are expected. Nothing logs passwords, tokens, cookies, presigned URLs, emails, bodies or query strings.
 
 Locally, uvicorn prints the same lines in colour (`LOG_FORMAT=auto` in a terminal). In the browser's console, dev builds show every log entry and production builds show warnings and errors.
+
+## Art cleanup
+
+The app deletes art objects that no card or origin references and that are older than 24 h. The design is in backend_plan §10.3.
+- **Automatic:** with `ART_SWEEP_ENABLED=true`, the app checks 60 s after it starts, then hourly. A Redis key (`art_sweep:last_run`) lets it sweep at most once a day. On the free plan it only runs while the service is awake.
+- **By hand:** a dry run lists what would go and deletes nothing. Add `--delete` to delete.
+
+  ```powershell
+  docker run --rm --env-file .env.prod card-table python -m scripts.sweep_art            # dry run
+  docker run --rm --env-file .env.prod card-table python -m scripts.sweep_art --delete
+  ```
+
+  Locally, from `backend/`: `python -m scripts.sweep_art`. It uses the `DATABASE_URL` and `R2_BUCKET` of `.env`, so check first that they belong together. It exits with 1 when the sweep was aborted or a delete failed.
+- **The R2 token** needs Object Read & Write on the bucket, which covers listing and deleting.
+- **Guard:** with more than `ART_SWEEP_MAX_DELETES` (200) unused objects at once, the sweep deletes nothing and logs `art.sweep_aborted`.
+- **Deletes are final:** R2 has no undo, and the sweep has no trash.
 
 ## Running the production image locally
 
@@ -142,7 +160,7 @@ Everything can stay running; nothing is billed while idle.
 | Render | Sleeps after 15 min without traffic (WebSocket messages count as traffic); the next request waits up to about a minute. Sleeping time doesn't use the 750 free hours a month. | Suspended until next month, not billed. Bandwidth is small (reportedly ~5 GB/month); art doesn't count, since it comes from R2. |
 | Neon | Compute stops after 5 min; wakes in under a second. | 100 compute-hours a month per project, then paused until next month. 0.5 GB storage. |
 | Upstash | No commands, no cost. **Archived after at least 14 days without traffic** (warning emails first). | ~500K commands a month. |
-| R2 | Free up to 10 GB and millions of operations a month. The account has a payment method, so a billing alert in Cloudflare is worth setting. | Billed beyond the free tier (not reachable at this scale). |
+| R2 | Free up to 10 GB and millions of operations a month. The account has a payment method, so a billing alert in Cloudflare is worth setting. The daily art sweep adds one list request per 1000 objects and one request per deleted object. | Billed beyond the free tier (not reachable at this scale). |
 
 - **Upstash archiving:** until rooms exist (M6), only `/api/health` uses Redis, so the database looks idle. The app still works if it is archived; Redis is only connected on use. `/api/health` would then show `redis: false`. Restore it, or create a new database, in the Upstash console, then update `REDIS_URL` in Render. A daily scheduled call to `/api/health` would keep it active.
 - **In-process state:** room locks and turn timers (M6) live in the process and are lost when the free instance sleeps or redeploys; room state in Redis survives.
@@ -162,6 +180,9 @@ Everything can stay running; nothing is billed while idle.
 | A merge to `master` didn't deploy | CI failed or is still running (see the Actions tab), or Auto-Deploy isn't "After CI checks pass". |
 | A path returns a JSON 404 instead of the app | Its first segment is `api` or `ws`; those never reach the frontend. Every other unknown path returns `index.html`, and React Router shows its 404 page. |
 | A user reports "Something went wrong (error ID: 3f2a9c1e)" | Search the logs for `3f2a9c1e`. The `http.request` line with `"error_code":"internal_error"` has the traceback, and the other lines with that id show what the request did first. |
+| `art.sweep_aborted` in the logs | More unused art than `ART_SWEEP_MAX_DELETES` at once. First check that `DATABASE_URL` and `R2_BUCKET` are production's pair: with the wrong database, every object looks unused. Then run the dry run by hand and read the keys. If they really are garbage, run it with `--delete --max-deletes <n>`. |
+| `art.sweep_failed` in the logs | The sweep crashed (the traceback is on the line), most likely R2, Neon or Upstash being unreachable. The next hourly check after the interval retries it. A single `art.delete_failed` is retried by the next sweep. |
+| No `art.swept` for days | Check that `app.started` shows `"art_sweep":true`. If it's `false`, `ART_SWEEP_ENABLED` isn't set: check Environment in Render (the Blueprint sets it from `render.yaml`). The sweep also needs the service to stay awake for 60 s after a start. |
 | Lines in the logs aren't JSON | `LOG_FORMAT` isn't `json` on the service (it comes from `render.yaml`). Lines from before the app starts (Render's own build and deploy messages) are always plain text. |
 
 ## Changing the setup later
