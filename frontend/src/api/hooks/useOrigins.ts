@@ -9,6 +9,13 @@ import { fetchAllPages } from "./fetchAllPages";
 export type Origin = components["schemas"]["OriginOut"];
 export type OriginBody = components["schemas"]["OriginCreate"];
 
+/** The system origin of cards that belong to no origin (backend `NEUTRAL_KEY`). */
+export const NEUTRAL_KEY = "neutral";
+
+export function findNeutral(origins: readonly Origin[]): Origin | undefined {
+  return origins.find((origin) => origin.system_key === NEUTRAL_KEY);
+}
+
 /** Every origin the user can use: the system templates first, then their own, each by name. */
 export function useOrigins() {
   return useQuery({

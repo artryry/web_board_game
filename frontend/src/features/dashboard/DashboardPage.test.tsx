@@ -17,6 +17,7 @@ describe("DashboardPage", () => {
     server.use(
       http.get(apiUrl("/api/cards"), page(LIBRARY_TOTALS.cards)),
       http.get(apiUrl("/api/card-groups"), page(LIBRARY_TOTALS.cardGroups)),
+      http.get(apiUrl("/api/decks"), page(LIBRARY_TOTALS.decks)),
     );
   });
 

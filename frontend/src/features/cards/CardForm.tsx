@@ -93,7 +93,11 @@ export function CardForm({ catalog, origins, groups, initial, card, backTo }: Ca
           {errors.root?.server && (
             <ErrorAlert>
               <p>{errors.root.server.message}</p>
-              <InUseList label="Decks" items={inUseItems(saveError, "decks")} />
+              <InUseList
+                label="Decks"
+                items={inUseItems(saveError, "decks")}
+                linkTo={(id) => `/decks/${id}`}
+              />
             </ErrorAlert>
           )}
           <KindField />

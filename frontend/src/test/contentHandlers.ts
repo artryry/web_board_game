@@ -1,7 +1,6 @@
 import { http, HttpResponse } from "msw";
 
 import { ART_CONTENT_TYPES, ART_MAX_BYTES } from "@/api/bounds";
-import { isRecord } from "@/api/errors";
 import type { Card } from "@/api/hooks/useCards";
 import type { Origin } from "@/api/hooks/useOrigins";
 
@@ -14,10 +13,14 @@ import {
   SYSTEM_ORIGIN_IDS,
   withDerived,
 } from "./contentStore";
+import { deckHandlers } from "./deckHandlers";
 import { apiError, apiUrl, authorized } from "./handlers";
+import { noContent, pageOf, readBody, type IdParams } from "./handlerUtils";
+import { shareHandlers } from "./shareHandlers";
 
 // The content API over the in-memory store: enough of the backend's rules for the UI's flows
-// (the 409 lists, group names, art keys, a spell's hp), not a copy of its validation.
+// (the 409 lists, group names, art keys, a spell's hp), not a copy of its validation. Decks and
+// rulesets are in deckHandlers.ts, share codes and imports in shareHandlers.ts.
 
 export const R2_TEST_ORIGIN = "https://r2.test";
 const EXTENSIONS: Readonly<Record<string, string>> = {
@@ -25,30 +28,6 @@ const EXTENSIONS: Readonly<Record<string, string>> = {
   "image/jpeg": "jpg",
   "image/webp": "webp",
 };
-
-type Body = Record<string, unknown>;
-interface IdParams {
-  id: string;
-}
-
-async function readBody(request: Request): Promise<Body> {
-  const body: unknown = await request.json();
-  contentStore.requests.push({
-    method: request.method,
-    path: new URL(request.url).pathname,
-    body,
-  });
-  return isRecord(body) ? body : {};
-}
-
-function pageOf(items: unknown[], request: Request) {
-  const query = new URL(request.url).searchParams;
-  const limit = Number(query.get("limit") ?? 50);
-  const offset = Number(query.get("offset") ?? 0);
-  return HttpResponse.json({ items: items.slice(offset, offset + limit), total: items.length });
-}
-
-const noContent = () => new HttpResponse(null, { status: 204 });
 
 /** The art key's check on save: only a key whose file reached storage is accepted. */
 function artProblem(key: unknown, current: string | null) {
@@ -174,7 +153,7 @@ function kindProblem(card: Pick<Card, "kind" | "hp" | "dmg" | "abilities">) {
 
 function decksHolding(cardId: string, otherThanOrigin?: string) {
   return contentStore.decks
-    .filter((deck) => deck.cardIds.includes(cardId))
+    .filter((deck) => deck.cards.some((entry) => entry.cardId === cardId))
     .filter((deck) => otherThanOrigin === undefined || deck.originId !== otherThanOrigin)
     .map(({ id, name }) => ({ id, name }));
 }
@@ -312,7 +291,7 @@ const groupHandlers = [
     authorized<IdParams, Promise<Response>>(async ({ request, params }) => {
       const body = await readBody(request);
       const group = contentStore.groups.find((candidate) => candidate.id === params.id);
-      if (group === undefined) return apiError(404, "card_group_not_found", "Card group not found");
+      if (group === undefined) return apiError(404, "group_not_found", "Card group not found");
       if (nameTaken(body.name, group.id)) return groupNameTaken();
       group.name = String(body.name).trim();
       return HttpResponse.json(groupOut(group));
@@ -376,5 +355,7 @@ export const contentHandlers = [
   ...originHandlers,
   ...cardHandlers,
   ...groupHandlers,
+  ...deckHandlers,
+  ...shareHandlers,
   ...uploadHandlers,
 ];

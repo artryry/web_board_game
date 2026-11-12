@@ -514,7 +514,7 @@ Auth errors (every `401` carries `WWW-Authenticate: Bearer`):
 - The merged deck is re-checked as a whole, so changing `origin_id` while cards of the old origin remain gives `card_origin_mismatch`. Send the new origin and the new card list together.
 - A ruleset PATCH with `definition` replaces the whole definition; sections it leaves out go back to their defaults.
 
-**Ruleset definitions in requests are plain JSON objects.** If FastAPI parsed them into `RulesetDefinition`, a bad one would get FastAPI's generic 422 body instead of `RuleError`s. Responses carry the typed `RulesetDefinition`, so the generated frontend types still have its shape. Unlike a deck, a ruleset can't be saved half-finished: an invalid one gives 422 `invalid_ruleset`.
+**Ruleset definitions in requests are plain JSON objects.** If FastAPI parsed them into `RulesetDefinition`, a bad one would get FastAPI's generic 422 body instead of `RuleError`s. Responses carry the typed `RulesetDefinition`, so the generated frontend types still have its shape. Its sections use `default_factory`, which writes no default into the schema, so the model sets `json_schema_serialization_defaults_required`: the response schema marks every section required, and the frontend reads `definition.deck` without a fallback (added in F2). Unlike a deck, a ruleset can't be saved half-finished: an invalid one gives 422 `invalid_ruleset`.
 
 **Errors** can carry extra fields next to `code` and `message` (`AppError(extra=...)`).
 

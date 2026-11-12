@@ -22,7 +22,8 @@ export function useCardGroups() {
 /**
  * Group changes refresh the cards too: deleting a group leaves its cards ungrouped, and the
  * library's counts come from both. A deleted card's own query is left alone: refetching it would
- * only turn the closing editor into a 404.
+ * only turn the closing editor into a 404. Open decks show their cards' names and costs, so they
+ * are refreshed as well.
  */
 export function useRefreshCardsAndGroups() {
   const queryClient = useQueryClient();
@@ -33,6 +34,7 @@ export function useRefreshCardsAndGroups() {
         predicate: (query) => deletedCardId === undefined || query.queryKey[2] !== deletedCardId,
       }),
       queryClient.invalidateQueries({ queryKey: ["card-groups"] }),
+      queryClient.invalidateQueries({ queryKey: ["decks", "detail"] }),
     ]);
 }
 

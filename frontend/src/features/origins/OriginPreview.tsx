@@ -1,31 +1,38 @@
 import { useId } from "react";
-import { useWatch } from "react-hook-form";
 
 import { describeParams } from "@/catalog/schemaFields";
-import { findModule, type Catalog } from "@/catalog/useCatalog";
+import { findModule, type Catalog, type ModuleRef } from "@/catalog/useCatalog";
 
 import { OriginBadge } from "./OriginBadge";
-import type { OriginFormValues } from "./originValues";
 import { originHex } from "./originLook";
 
 interface OriginPreviewProps {
   catalog: Catalog;
+  name: string;
+  color: string;
+  icon: string;
+  effects: readonly ModuleRef[];
   backgroundUrl: string | null;
+  title?: string;
 }
 
 /** The origin as a board section shows it: its background, its look and its field effects. */
-export function OriginPreview({ catalog, backgroundUrl }: OriginPreviewProps) {
-  const [name, color, icon, effects] = useWatch<
-    OriginFormValues,
-    ["name", "color", "icon", "field_effects"]
-  >({ name: ["name", "color", "icon", "field_effects"] });
+export function OriginPreview({
+  catalog,
+  name,
+  color,
+  icon,
+  effects,
+  backgroundUrl,
+  title = "Preview",
+}: OriginPreviewProps) {
   const hex = originHex(catalog, color);
   const titleId = useId();
 
   return (
     <section aria-labelledby={titleId} className="flex flex-col gap-3">
       <h2 id={titleId} className="text-sm font-medium text-text-muted">
-        Preview
+        {title}
       </h2>
       <div className="relative aspect-video overflow-hidden rounded-lg border border-border-strong bg-surface">
         {backgroundUrl === null ? (

@@ -74,7 +74,9 @@ class RulesetDefinition(BaseModel):
     """A ruleset's rules. Every value has a default, so `RulesetDefinition()` is the default
     ruleset."""
 
-    model_config = ConfigDict(extra="forbid")
+    # Responses always carry every section, so the response schema marks them required. Without
+    # it the `default_factory` sections show as optional in the frontend's generated types.
+    model_config = ConfigDict(extra="forbid", json_schema_serialization_defaults_required=True)
 
     schema_version: Literal[1] = CURRENT_SCHEMA_VERSION
     board: BoardRules = Field(default_factory=BoardRules)

@@ -2,7 +2,7 @@ import { isRecord } from "@/api/errors";
 import { UNGROUPED, type CardFilters } from "@/api/hooks/useCards";
 
 // The card library keeps its view in the query string, so it survives a reload and can be linked
-// to (F2's import goes to `/cards?group=<id>`): `group` (an id or `ungrouped`), `origin`, `kind`.
+// to (a card group's import goes to `/cards?group=<id>`): `group` (an id or `ungrouped`), `origin`, `kind`.
 
 export type LibraryParam = "group" | "origin" | "kind";
 

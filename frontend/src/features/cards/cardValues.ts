@@ -1,6 +1,6 @@
 import type { Card, CardBody, CardKind } from "@/api/hooks/useCards";
 import type { CardGroup } from "@/api/hooks/useCardGroups";
-import type { Origin } from "@/api/hooks/useOrigins";
+import { findNeutral, type Origin } from "@/api/hooks/useOrigins";
 import { findModule, type Catalog, type ModuleRef } from "@/catalog/useCatalog";
 
 import { abilityCost, cardPoints, suggestManaCost } from "./cost";
@@ -41,7 +41,7 @@ export function emptyCard(
 ): CardFormValues {
   const origin =
     origins.find((candidate) => candidate.id === starts.origin) ??
-    origins.find((candidate) => candidate.system_key === "neutral") ??
+    findNeutral(origins) ??
     origins[0];
   const group = groups.find((candidate) => candidate.id === starts.group);
   return {

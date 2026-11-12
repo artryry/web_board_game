@@ -1,9 +1,13 @@
 import type { Card } from "@/api/hooks/useCards";
 import type { CardGroup } from "@/api/hooks/useCardGroups";
+import type { Deck, DeckSummary } from "@/api/hooks/useDecks";
 import type { Origin } from "@/api/hooks/useOrigins";
+import type { Ruleset } from "@/api/hooks/useRulesets";
 import { cardContent, suggestedCost } from "@/features/cards/cardValues";
 
 import { CATALOG } from "./catalogFixture";
+import { TEST_USER } from "./handlers";
+import { rulesetsFixture } from "./rulesetFixture";
 
 // The fake API's data: a small in-memory library, reset after every test (src/test/setup.ts).
 // Tests seed it with the add* helpers and read what was saved, or what was sent, back from it.
@@ -11,11 +15,17 @@ import { CATALOG } from "./catalogFixture";
 const NOW = "2026-11-10T10:00:00Z";
 export const ART_PUBLIC_ORIGIN = "https://art.test";
 
+export interface FakeDeckCard {
+  cardId: string;
+  count: number;
+}
+
 export interface FakeDeck {
   id: string;
   name: string;
   originId: string;
-  cardIds: string[];
+  cards: FakeDeckCard[];
+  shareCode: string | null;
 }
 
 interface SentRequest {
@@ -29,7 +39,11 @@ interface ContentStore {
   /** Newest first, like the API's list. */
   cards: Card[];
   groups: Omit<CardGroup, "card_count">[];
+  /** Newest first, like the API's list. */
   decks: FakeDeck[];
+  rulesets: Ruleset[];
+  /** Who shared a deck, group or ruleset, by its id, when it isn't the test user. */
+  authors: Map<string, string>;
   /** Upload keys and the Content-Type each was signed for. */
   signed: Map<string, string>;
   /** Keys whose file reached the fake R2. */
@@ -87,6 +101,8 @@ function emptyStore(): ContentStore {
     cards: [],
     groups: [],
     decks: [],
+    rulesets: rulesetsFixture(),
+    authors: new Map(),
     signed: new Map(),
     stored: new Set(),
     requests: [],
@@ -187,8 +203,69 @@ export function groupOut(group: Omit<CardGroup, "card_count">): CardGroup {
   return { ...group, card_count: count };
 }
 
-export function addDeck(name: string, originId: string, cardIds: string[]): FakeDeck {
-  const deck = { id: newId(), name, originId, cardIds };
-  contentStore.decks.push(deck);
+/** A deck, newest first. A card given by its id alone has one copy. */
+export function addDeck(
+  name: string,
+  originId: string,
+  cards: readonly (string | FakeDeckCard)[] = [],
+  shareCode: string | null = null,
+): FakeDeck {
+  const deck: FakeDeck = {
+    id: newId(),
+    name,
+    originId,
+    cards: cards.map((card) => (typeof card === "string" ? { cardId: card, count: 1 } : card)),
+    shareCode,
+  };
+  contentStore.decks.unshift(deck);
   return deck;
+}
+
+/** A share code in the server's alphabet (no 0, 1, I, L or O), unique within a test. */
+export function newShareCode(): string {
+  const alphabet = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
+  let n = contentStore.nextId;
+  contentStore.nextId += 1;
+  let code = "";
+  for (let i = 0; i < 10; i += 1) {
+    code += alphabet[n % alphabet.length] ?? "2";
+    n = Math.floor(n / alphabet.length);
+  }
+  return code;
+}
+
+/** The username shown as the author of a shared deck, group or ruleset. */
+export function authorOf(id: string): string {
+  return contentStore.authors.get(id) ?? TEST_USER.username;
+}
+
+/** Sorts deck cards as the server does: by mana cost, then name, then id. */
+export function byManaThenName(a: Card, b: Card): number {
+  return (
+    a.mana_cost - b.mana_cost ||
+    a.name.toLowerCase().localeCompare(b.name.toLowerCase()) ||
+    a.id.localeCompare(b.id)
+  );
+}
+
+export function deckSummary(deck: FakeDeck): DeckSummary {
+  return {
+    id: deck.id,
+    name: deck.name,
+    origin_id: deck.originId,
+    card_count: deck.cards.reduce((total, entry) => total + entry.count, 0),
+    share_code: deck.shareCode,
+    created_at: NOW,
+    updated_at: NOW,
+  };
+}
+
+export function deckOut(deck: FakeDeck): Deck {
+  const cards = deck.cards
+    .flatMap(({ cardId, count }) => {
+      const card = contentStore.cards.find((candidate) => candidate.id === cardId);
+      return card === undefined ? [] : [{ card, count }];
+    })
+    .sort((a, b) => byManaThenName(a.card, b.card));
+  return { ...deckSummary(deck), cards };
 }

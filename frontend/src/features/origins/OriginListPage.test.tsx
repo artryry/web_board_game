@@ -25,7 +25,7 @@ describe("OriginListPage", () => {
   it("lists the cards and decks that still use an origin it can't delete", async () => {
     const swamp = addOrigin({ name: "Swamp" });
     const troll = addCard({ name: "Bog troll", origin_id: swamp.id });
-    addDeck("Swamp rush", swamp.id, [troll.id]);
+    const deck = addDeck("Swamp rush", swamp.id, [troll.id]);
     saveSession();
     const { user } = renderApp("/origins");
 
@@ -37,7 +37,10 @@ describe("OriginListPage", () => {
       "href",
       `/cards/${troll.id}`,
     );
-    expect(within(dialog).getByText("Swamp rush")).toBeInTheDocument();
+    expect(within(dialog).getByRole("link", { name: "Swamp rush" })).toHaveAttribute(
+      "href",
+      `/decks/${deck.id}`,
+    );
     expect(contentStore.origins.some((origin) => origin.id === swamp.id)).toBe(true);
   });
 

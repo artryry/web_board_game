@@ -14,7 +14,7 @@ interface MoveToGroupDialogProps {
   onClose: () => void;
 }
 
-/** Moves a card into a group, or out of every group. Drag-and-drop arrives in F2. */
+/** Moves a card into a group, or out of every group. */
 export function MoveToGroupDialog({ card, groups, onClose }: MoveToGroupDialogProps) {
   return (
     <Modal open={card !== null} title={`Move ${card?.name ?? "card"}`} onClose={onClose} size="sm">

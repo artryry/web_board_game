@@ -36,8 +36,11 @@ export function DeleteCardDialog({ card, open, onClose, onDeleted }: DeleteCardD
       {remove.error !== null && (
         <ErrorAlert>
           <p>{errorMessage(remove.error)}</p>
-          {/* Decks get their pages in F2, so they show as names for now. */}
-          <InUseList label="Decks" items={inUseItems(remove.error, "decks")} />
+          <InUseList
+            label="Decks"
+            items={inUseItems(remove.error, "decks")}
+            linkTo={(id) => `/decks/${id}`}
+          />
         </ErrorAlert>
       )}
     </ConfirmDialog>

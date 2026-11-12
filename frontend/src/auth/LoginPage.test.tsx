@@ -12,13 +12,13 @@ async function logIn(view: ReturnType<typeof renderApp>, password = TEST_PASSWOR
 
 describe("LoginPage", () => {
   it("goes back to the page the user came from", async () => {
-    const view = renderApp("/decks?sort=name");
+    const view = renderApp("/nowhere?sort=name");
     expect(await screen.findByRole("heading", { name: "Log in" })).toBeInTheDocument();
 
     await logIn(view);
 
     expect(await screen.findByRole("heading", { name: "Page not found" })).toBeInTheDocument();
-    expect(view.router.state.location.pathname).toBe("/decks");
+    expect(view.router.state.location.pathname).toBe("/nowhere");
     expect(view.router.state.location.search).toBe("?sort=name");
   });
 

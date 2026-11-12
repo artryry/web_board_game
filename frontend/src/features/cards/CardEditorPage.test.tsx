@@ -185,20 +185,23 @@ describe("CardEditorPage", () => {
 
   it("lists the decks that still hold a card it can't delete", async () => {
     const wolf = addCard({ name: "Wolf" });
-    addDeck("Pack", SYSTEM_ORIGIN_IDS.neutral, [wolf.id]);
+    const deck = addDeck("Pack", SYSTEM_ORIGIN_IDS.neutral, [wolf.id]);
     const { user } = await openEditor(`/cards/${wolf.id}`, "Edit Wolf");
 
     await user.click(screen.getByRole("button", { name: "Delete" }));
     const dialog = screen.getByRole("dialog", { name: "Delete Wolf?" });
     await user.click(within(dialog).getByRole("button", { name: "Delete" }));
 
-    expect(await within(dialog).findByText("Pack")).toBeInTheDocument();
+    expect(await within(dialog).findByRole("link", { name: "Pack" })).toHaveAttribute(
+      "href",
+      `/decks/${deck.id}`,
+    );
     expect(within(dialog).getByRole("alert")).toHaveTextContent("still hold this card");
   });
 
   it("lists the decks that block moving a card to another origin", async () => {
     const wolf = addCard({ name: "Wolf", origin_id: SYSTEM_ORIGIN_IDS.forest });
-    addDeck("Forest pack", SYSTEM_ORIGIN_IDS.forest, [wolf.id]);
+    const deck = addDeck("Forest pack", SYSTEM_ORIGIN_IDS.forest, [wolf.id]);
     const { user } = await openEditor(`/cards/${wolf.id}`, "Edit Wolf");
 
     await user.selectOptions(screen.getByLabelText("Origin"), "Volcano");
@@ -206,7 +209,10 @@ describe("CardEditorPage", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("of another origin hold this card");
-    expect(within(alert).getByText("Forest pack")).toBeInTheDocument();
+    expect(within(alert).getByRole("link", { name: "Forest pack" })).toHaveAttribute(
+      "href",
+      `/decks/${deck.id}`,
+    );
   });
 
   it("deletes a card and goes back to the library view it came from", async () => {

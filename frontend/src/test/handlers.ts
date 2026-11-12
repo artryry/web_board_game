@@ -93,6 +93,4 @@ export const handlers = [
     apiUrl("/api/auth/me"),
     authorized(() => HttpResponse.json(TEST_USER)),
   ),
-  // Cards and card groups come from the content store (contentHandlers.ts). Decks arrive in F2.
-  http.get(apiUrl("/api/decks"), authorized(page(LIBRARY_TOTALS.decks))),
 ];

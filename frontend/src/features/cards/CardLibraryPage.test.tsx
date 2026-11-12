@@ -176,6 +176,27 @@ describe("CardLibraryPage", () => {
     expect(await within(panel).findByRole("link", { name: "Beasts 3 cards" })).toBeInTheDocument();
   });
 
+  it("shares a group by code, and marks it as shared", async () => {
+    const { beasts } = seedLibrary();
+    const { user, panel } = await openLibrary();
+    expect(await within(panel).findByRole("link", { name: "Beasts 2 cards" })).toBeInTheDocument();
+
+    await user.click(within(panel).getByRole("button", { name: "Share Beasts" }));
+    const dialog = screen.getByRole("dialog", { name: "Share Beasts" });
+    await user.click(within(dialog).getByRole("button", { name: "Create link" }));
+
+    const code = await waitFor(() => {
+      const stored = contentStore.groups.find((group) => group.id === beasts.id)?.share_code;
+      expect(stored).toEqual(expect.any(String));
+      return stored ?? "";
+    });
+    expect(await within(dialog).findByText(code)).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Close" }));
+    expect(
+      await within(panel).findByRole("link", { name: "Beasts (shared) 2 cards" }),
+    ).toBeInTheDocument();
+  });
+
   it("loads more cards 50 at a time", async () => {
     for (let index = 1; index <= 55; index += 1) addCard({ name: `Card ${index}` });
     const { user } = await openLibrary();

@@ -376,6 +376,82 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/rulesets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Rulesets */
+        get: operations["list_rulesets_api_rulesets_get"];
+        put?: never;
+        /** Create Ruleset */
+        post: operations["create_ruleset_api_rulesets_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/rulesets/validate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Validate Ruleset
+         * @description Always 200: `valid` says whether the definition can be saved, and `errors` lists every
+         *     problem with its path.
+         */
+        post: operations["validate_ruleset_api_rulesets_validate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/rulesets/{ruleset_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Ruleset */
+        get: operations["get_ruleset_api_rulesets__ruleset_id__get"];
+        put?: never;
+        post?: never;
+        /** Delete Ruleset */
+        delete: operations["delete_ruleset_api_rulesets__ruleset_id__delete"];
+        options?: never;
+        head?: never;
+        /** Update Ruleset */
+        patch: operations["update_ruleset_api_rulesets__ruleset_id__patch"];
+        trace?: never;
+    };
+    "/api/rulesets/{ruleset_id}/share": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Share Ruleset */
+        post: operations["share_ruleset_api_rulesets__ruleset_id__share_post"];
+        /** Revoke Ruleset Share */
+        delete: operations["revoke_ruleset_share_api_rulesets__ruleset_id__share_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/share/{code}": {
         parameters: {
             query?: never;
@@ -456,6 +532,24 @@ export interface components {
         AccessToken: {
             /** Access */
             access: string;
+        };
+        /** BoardRules */
+        BoardRules: {
+            /**
+             * Lanes
+             * @default 3
+             */
+            lanes: number;
+            /**
+             * Slots Per Section
+             * @default 3
+             */
+            slots_per_section: number;
+            /**
+             * Section Hp
+             * @default 20
+             */
+            section_hp: number;
         };
         /** CardCreate */
         CardCreate: {
@@ -810,6 +904,24 @@ export interface components {
             /** Card Count */
             card_count: number;
         };
+        /** DeckRules */
+        DeckRules: {
+            /**
+             * Size
+             * @default 30
+             */
+            size: number;
+            /**
+             * Max Copies
+             * @default 2
+             */
+            max_copies: number;
+            /**
+             * Allow Neutral
+             * @default true
+             */
+            allow_neutral: boolean;
+        };
         /** DeckSummaryOut */
         DeckSummaryOut: {
             /**
@@ -892,6 +1004,19 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /** HandRules */
+        HandRules: {
+            /**
+             * Max Size
+             * @default 10
+             */
+            max_size: number;
+            /**
+             * Second Player Bonus Card
+             * @default true
+             */
+            second_player_bonus_card: boolean;
+        };
         /** HealthResponse */
         HealthResponse: {
             /**
@@ -923,6 +1048,24 @@ export interface components {
             email: string;
             /** Password */
             password: string;
+        };
+        /** ManaRules */
+        ManaRules: {
+            /**
+             * Start
+             * @default 1
+             */
+            start: number;
+            /**
+             * Per Turn
+             * @default 1
+             */
+            per_turn: number;
+            /**
+             * Max
+             * @default 10
+             */
+            max: number;
         };
         /**
          * ModuleRef
@@ -1049,6 +1192,13 @@ export interface components {
             /** Total */
             total: number;
         };
+        /** Page[RulesetOut] */
+        Page_RulesetOut_: {
+            /** Items */
+            items: components["schemas"]["RulesetOut"][];
+            /** Total */
+            total: number;
+        };
         /** PhaseOut */
         PhaseOut: {
             /** Key */
@@ -1075,6 +1225,131 @@ export interface components {
             email: string;
             /** Password */
             password: string;
+        };
+        /**
+         * RuleError
+         * @description One problem in a definition. `path` points into it: at a value (`["board", "lanes"]`),
+         *     or at a pipeline (`["turn"]`) for a rule about the whole pipeline.
+         */
+        RuleError: {
+            /** Path */
+            path: (string | number)[];
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "invalid_value" | "unknown_module" | "invalid_params" | "turn_needs_interactive_phase" | "end_turn_missing" | "end_turn_repeated" | "end_turn_not_last" | "setup_phase_not_allowed" | "mana_start_above_max" | "unsupported_schema_version";
+            /** Message */
+            message: string;
+        };
+        /** RulesetCreate */
+        RulesetCreate: {
+            /** Name */
+            name: string;
+            /** Definition */
+            definition: {
+                [key: string]: unknown;
+            };
+        };
+        /**
+         * RulesetDefinition
+         * @description A ruleset's rules. Every value has a default, so `RulesetDefinition()` is the default
+         *     ruleset.
+         */
+        RulesetDefinition: {
+            /**
+             * Schema Version
+             * @default 1
+             * @constant
+             */
+            schema_version: 1;
+            board: components["schemas"]["BoardRules"];
+            deck: components["schemas"]["DeckRules"];
+            mana: components["schemas"]["ManaRules"];
+            hand: components["schemas"]["HandRules"];
+            /** Setup */
+            setup: components["schemas"]["ModuleRef"][];
+            /** Turn */
+            turn: components["schemas"]["ModuleRef"][];
+        };
+        /** RulesetImported */
+        RulesetImported: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "ruleset";
+            ruleset: components["schemas"]["RulesetOut"];
+        };
+        /** RulesetOut */
+        RulesetOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            definition: components["schemas"]["RulesetDefinition"];
+            /** Is System */
+            is_system: boolean;
+            /** System Key */
+            system_key: string | null;
+            /** Share Code */
+            share_code: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** RulesetPreview */
+        RulesetPreview: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "ruleset";
+            /** Code */
+            code: string;
+            /** Name */
+            name: string;
+            /** Author */
+            author: string;
+            definition: components["schemas"]["RulesetDefinition"];
+        };
+        /**
+         * RulesetUpdate
+         * @description Partial update: only the fields that are sent change. A definition replaces the whole
+         *     one.
+         */
+        RulesetUpdate: {
+            /** Name */
+            name?: string | null;
+            /** Definition */
+            definition?: {
+                [key: string]: unknown;
+            } | null;
+        };
+        /** RulesetValidateRequest */
+        RulesetValidateRequest: {
+            /** Definition */
+            definition: {
+                [key: string]: unknown;
+            };
+        };
+        /** RulesetValidation */
+        RulesetValidation: {
+            /** Valid */
+            valid: boolean;
+            /** Errors */
+            errors: components["schemas"]["RuleError"][];
+            definition: components["schemas"]["RulesetDefinition"] | null;
         };
         /** ShareCodeOut */
         ShareCodeOut: {
@@ -2193,6 +2468,259 @@ export interface operations {
             };
         };
     };
+    list_rulesets_api_rulesets_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_RulesetOut_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_ruleset_api_rulesets_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RulesetCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RulesetOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    validate_ruleset_api_rulesets_validate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RulesetValidateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RulesetValidation"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_ruleset_api_rulesets__ruleset_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ruleset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RulesetOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_ruleset_api_rulesets__ruleset_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ruleset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_ruleset_api_rulesets__ruleset_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ruleset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RulesetUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RulesetOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    share_ruleset_api_rulesets__ruleset_id__share_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ruleset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ShareCodeOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_ruleset_share_api_rulesets__ruleset_id__share_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ruleset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     preview_api_share__code__get: {
         parameters: {
             query?: never;
@@ -2210,7 +2738,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["DeckPreview"] | components["schemas"]["CardGroupPreview"];
+                    "application/json": components["schemas"]["DeckPreview"] | components["schemas"]["CardGroupPreview"] | components["schemas"]["RulesetPreview"];
                 };
             };
             /** @description Validation Error */
@@ -2241,7 +2769,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["DeckImported"] | components["schemas"]["CardGroupImported"];
+                    "application/json": components["schemas"]["DeckImported"] | components["schemas"]["CardGroupImported"] | components["schemas"]["RulesetImported"];
                 };
             };
             /** @description Validation Error */

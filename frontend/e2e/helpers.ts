@@ -24,3 +24,16 @@ export async function registerNewUser(page: Page) {
   await expect(dashboardHeading(page, account.username)).toBeVisible();
   return account;
 }
+
+/**
+ * Creates a 1/1 creature for 1 mana in the card editor, and waits for the library. It starts from
+ * the main nav, so the app isn't reloaded.
+ */
+export async function createCard(page: Page, card: { name: string; origin: string }) {
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Cards" }).click();
+  await page.getByRole("link", { name: "New card" }).click();
+  await page.getByLabel("Name", { exact: true }).fill(card.name);
+  await page.getByLabel("Origin", { exact: true }).selectOption({ label: card.origin });
+  await page.getByRole("button", { name: "Create card" }).click();
+  await expect(page).toHaveURL(/\/cards$/);
+}

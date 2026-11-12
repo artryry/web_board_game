@@ -84,5 +84,5 @@ We built backend M4 on the `m4-rulesets` branch. Nothing is committed yet.
 
 ## Next steps
 1. Review, commit and merge `m4-rulesets`. The two migrations run on deploy (`scripts/start.sh`).
-2. F2: `npm run gen:api` first, then the plan in [features/f2-deck-builder.md](../features/f2-deck-builder.md).
+2. F2: `npm run gen:api` first, then the plan in [current-feature.md](../current-feature.md) (it was `features/f2-deck-builder.md`).
 3. Leftovers from earlier sessions: the art cleanup check on Render ([session_2026-11-11_art-cleanup.md](session_2026-11-11_art-cleanup.md)) and the logging e2e run ([session_2026-11-11_logging.md](session_2026-11-11_logging.md)).

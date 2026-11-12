@@ -40,7 +40,11 @@ export function DeleteOriginDialog({ origin, onClose }: DeleteOriginDialogProps)
             items={inUseItems(remove.error, "cards")}
             linkTo={(id) => `/cards/${id}`}
           />
-          <InUseList label="Decks" items={inUseItems(remove.error, "decks")} />
+          <InUseList
+            label="Decks"
+            items={inUseItems(remove.error, "decks")}
+            linkTo={(id) => `/decks/${id}`}
+          />
         </ErrorAlert>
       )}
     </ConfirmDialog>

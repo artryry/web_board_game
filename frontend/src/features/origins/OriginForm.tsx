@@ -13,7 +13,7 @@ import { TextField } from "@/ui/TextField";
 
 import { toOriginBody, type OriginFormValues } from "./originValues";
 import { OriginLookFields } from "./OriginLookFields";
-import { OriginPreview } from "./OriginPreview";
+import { OriginFormPreview } from "./OriginFormPreview";
 
 interface OriginFormProps {
   catalog: Catalog;
@@ -106,7 +106,7 @@ export function OriginForm({
             </div>
           )}
         </form>
-        <OriginPreview catalog={catalog} backgroundUrl={art.previewUrl} />
+        <OriginFormPreview catalog={catalog} backgroundUrl={art.previewUrl} />
       </div>
     </FormProvider>
   );

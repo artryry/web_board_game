@@ -24,7 +24,7 @@ The frontend for the card-game constructor described in [project_description.md]
 | Routing | React Router 8 in data mode: `createBrowserRouter`, with `RouterProvider` from `react-router/dom` (not framework mode) |
 | Server data | TanStack Query 5. Client errors (4xx) are never retried. |
 | Live game state | Zustand (added in F4/F5, when the game store lands) |
-| Drag-and-drop | dnd-kit (`@dnd-kit/core`, `@dnd-kit/sortable`), added in F2 |
+| Drag-and-drop | dnd-kit: `@dnd-kit/core` 6.3.1 in F2 (the deck builder: library cards onto the deck, pointer sensor only), `@dnd-kit/sortable` 10.0.0 in F3 (the phase pipeline). The newer `@dnd-kit/react` was still pre-1.0 (0.5.3) when F2 was built (2026-11-12). |
 | Animation | Framer Motion, added in F5 |
 | Icons | `lucide-react`, added in F1. Each icon is imported by name, so the bundle holds only the ones used: the catalog's 16 origin icons (all Lucide names) and a few UI icons. |
 | Styling | Tailwind CSS 4. The design tokens live in CSS, in the `@theme` block of `src/styles/index.css` (no `tailwind.config.js`). |
@@ -60,12 +60,16 @@ frontend/
       requestId.ts       newRequestId(): the X-Request-ID the server keeps on its log lines
       queryClient.ts     QueryClient defaults (no retries on 4xx)
       schema.d.ts        generated OpenAPI types
-      bounds.ts          content input limits copied from the backend schemas (names, stats, art)
+      bounds.ts          content input limits copied from the backend schemas (names, stats, art,
+                         a deck's 4 copies and 60 cards)
       showServerError.ts maps API error codes onto form fields, with a code → field map per form
-      inUse.ts           reads the [{id, name}] lists of a 409 (origin_in_use, card_in_use)
+      inUse.ts           reads the [{id, name}] lists of a 409 (origin_in_use, card_in_use) and of
+                         a deck save's card_origin_mismatch
       uploadArt.ts       art upload: the presign request, then the PUT to R2 (no bearer token)
-      hooks/             useLibraryCounts, useOrigins, useCards, useCardGroups, useArtUpload,
-                         fetchAllPages; later useDecks, useRulesets, useRooms, useShare ...
+      hooks/             useLibraryCounts, useOrigins (findNeutral), useCards (useOriginCards: one
+                         origin in full), useCardGroups, useArtUpload, fetchAllPages, useDecks,
+                         useRulesets (findDefaultRuleset), useShare (share, revoke, preview,
+                         import); later useRooms ...
     auth/
       tokens.ts          access token in memory, the session hint in localStorage, cross-tab logout
       AuthContext.ts     auth state and context types
@@ -85,18 +89,25 @@ frontend/
       dashboard/         DashboardPage
       origins/           OriginListPage, OriginListItem, DeleteOriginDialog, OriginEditorPage,
                          OriginForm (the page and the card editor's modal), OriginLookFields,
-                         OriginPreview (section tile + effect badges), OriginBadge, OriginIcon,
-                         originLook (colour hex), originValues (form ↔ API)
+                         OriginPreview (section tile + effect badges, from props; the import page
+                         uses it too), OriginFormPreview (the form's live values), OriginBadge,
+                         OriginIcon, originLook (colour hex), originValues (form ↔ API)
       cards/             CardLibraryPage, CardGroupPanel, GroupNameDialog, DeleteGroupDialog,
                          LibraryFilters, LibraryCard, MoveToGroupDialog, BalanceLabel, libraryParams
                          (the URL state), CardEditorPage, CardForm (KindField, StatFields,
                          AbilitiesField, SpellEffectField, OriginField, NewOriginModal,
                          DeleteCardDialog), CardPreview, CardView, CostSuggestion, cost (the
                          formula), cardValues (the kind and dmg_use rules), ArtUpload, useArtField
-      decks/             DeckListPage, DeckBuilderPage, ManaCurveChart, ShareDialog
+      decks/             DeckListPage, DeckListItem, ShareCodeForm, DeleteDeckDialog,
+                         DeckBuilderPage, DeckBuilder (state and Save), DeckHeader, DeckDnd,
+                         DeckLibraryPanel, LibraryCardButton, DeckPanel (the drop target),
+                         OriginChangeDialog, useLeaveGuard + LeaveGuardDialog, useLibraryCards,
+                         ManaCurveChart, DeckValidityPanel; pure: deckEntries, manaCurve,
+                         deckProblems (F4's lobby reuses it)
       rules/             RulesListPage, RulesEditorPage, BoardSettingsForm,
                          PhasePipeline (sortable), ModulePalette, PhaseItem
-      share/             ImportPage
+      share/             ShareDialog (decks and card groups), shareLink, ImportPage, ImportPanel,
+                         SharedContent, SharedCards
       rooms/             CreateRoomPage, JoinByCodeDialog, LobbyView
       game/              GameView, GameBoard, Lane, Section, Slot, CreatureCard,
                          Hand, HandCard, OpponentHand, DeckPile, ManaBar,
@@ -113,11 +124,13 @@ frontend/
       socket.ts          RoomSocket: connect, reconnect with backoff, seq, resync
       gameStore.ts       Zustand store for room and game state
       eventQueue.ts      plays server events one after another as animations
-    ui/                  Button, ButtonLink, TextField, SelectField, Modal, ConfirmDialog, ErrorAlert,
-                         InUseList, LoadingState, Spinner, CardFrame; later Toast, Tabs, HpBar
+    ui/                  Button, ButtonLink, IconButton, TextField, SelectField, Modal, ConfirmDialog,
+                         ErrorAlert, InUseList, LoadingState, Spinner, CardFrame; later Toast,
+                         Tabs, HpBar
     styles/              index.css: Tailwind and the @theme design tokens
-    test/                Vitest setup, MSW fake API (auth handlers, content handlers over an in-memory
-                         store, a catalog fixture, a fake R2), renderApp and renderWithForm helpers,
+    test/                Vitest setup, MSW fake API (auth handlers, content, deck and share handlers
+                         over an in-memory store, catalog and ruleset fixtures, a fake R2),
+                         renderApp and renderWithForm helpers,
                          logCapture (a memory log sink: tests check entries, the console stays quiet)
   e2e/                   Playwright specs (and global-setup.ts, which checks /api/health)
 ```
@@ -132,8 +145,8 @@ frontend/
 | `/origins/new`, `/origins/:id` | Origin editor | See §4.0 |
 | `/cards` | Card library | Cards organised by **group** (folders, plus "Ungrouped"): create, rename and delete groups, and move cards between them. A grid with filters (origin, kind). A cost filter waits for a backend filter on `GET /api/cards` (dropped from F1 on 2026-11-10). Each card shows its **balance label** (*under-costed / balanced / over-costed*) from the server, as information only. New / edit / delete. Share a group by code (F2). |
 | `/cards/new`, `/cards/:id` | Card editor | See §4.1 |
-| `/decks` | Deck list | Origin badge, size, validity check against the default ruleset; share button |
-| `/decks/:id` | Deck builder | See §4.2 |
+| `/decks` | Deck list | Newest first, with Load more: origin badge, the card count against the default ruleset's size ("24 / 30 cards"; the full check needs the cards, so it is in the builder), a "Shared" mark; share and delete. A "Have a share code?" form opens `/share/<code>`. |
+| `/decks/new`, `/decks/:id` | Deck builder | See §4.2. A new deck is created on its first Save. |
 | `/rules` | Rules list | My rulesets; duplicate / share / delete |
 | `/rules/new`, `/rules/:id` | Rules editor | See §4.3 |
 | `/share/:code` | Import | Preview of a shared deck, card group or ruleset → **Import to my library** |
@@ -173,26 +186,31 @@ frontend/
 - **Art upload:** ask the backend for a presigned URL, `PUT` the file straight to Cloudflare R2 (the bucket needs a CORS rule allowing `PUT` from the app origin), then save `art_key` on the card. Check type and size (2 MB or less) in the browser first. The preview is cropped by CSS only (`object-fit: cover` in the art frame), and the original file is uploaded unchanged; there is no crop tool. The upload starts as soon as a file is picked, so an upload error shows at once and Save stays quick; Save waits while an upload runs. An upload that is never saved leaves an unused object in R2, which the daily art sweep deletes after 24 h (backend §10.3).
 
 ### 4.2 Deck builder
-- Two columns: the library on the left (filtered to the deck's origin plus neutral cards) and the deck list on the right, with copy counts.
-- Add cards by clicking or by dragging into the deck.
-- The deck origin is chosen once. Changing it warns that cards from the old origin will be removed. The save sends the new `origin_id` and the trimmed `cards` together, since the server rejects an origin change while old cards remain (`card_origin_mismatch`).
+- **`/decks/new`** starts with no origin and creates nothing until Save; then the address becomes `/decks/:id` (replace).
+- Two columns: the library on the left (the deck's origin plus neutral cards, loaded in full and filtered on the client by kind and name) and the deck list on the right, with copy counts (**−** / **+**).
+- Add cards by clicking (or Enter/Space on the card's button) or by dragging into the deck. Only the pointer drags, after a 5 px move, so a click still adds; the deck panel lights up while a card is over it.
+- The deck origin can be changed. A change that would drop cards lists them in a confirm dialog first. The save sends the new `origin_id` and the trimmed `cards` together, since the server rejects an origin change while old cards remain (`card_origin_mismatch`).
+- **Unsaved changes:** leaving asks "Leave without saving?" (react-router's `useBlocker`), and closing or reloading the tab gets the browser's prompt (`beforeunload`).
 - Save sends the whole card list (`PATCH /api/decks/{id}` with `cards: [{card_id, count}]`). The server checks only the hard bounds: 1–4 copies, at most 60 cards, and the deck's origin or neutral.
-- A validity panel checks the deck against a chosen ruleset's `deck` rules, as information only (the server checks when the deck is picked for a room, M6):
+- A validity panel checks the deck against a ruleset's `deck` rules: the default ruleset, or one picked from the user's own. Information only (the server checks when the deck is picked for a room, M6). The check is the pure `deckProblems(entries, rules, {deck, neutral})`:
   - **size:** the deck needs **exactly** `deck.size` cards. Fewer or more is a problem, but saving still works.
   - **copies:** no card above `deck.max_copies`.
   - **neutral:** when `deck.allow_neutral` is false, neutral cards can't be mixed into a deck of another origin. A neutral deck's cards are its own origin, so a neutral deck still passes.
 - A small mana-curve chart, built from the users' own costs.
-- **Share dialog** (decks and card groups use the same one):
+- **Share dialog** (`features/share/ShareDialog`; decks and card groups use the same one). It opens from the deck list, the builder (a saved deck; with unsaved changes it says the saved version is shared) and each group in the card library's group panel, which also marks shared groups:
   - `POST /api/decks/{id}/share` (or `/api/card-groups/{id}/share`) returns `{share_code}`. Calling it again returns the same code.
-  - The dialog shows the code and a link to `/share/:code`, with a copy button.
+  - The dialog shows the code and a link to `/share/:code`, with a copy button. If the clipboard fails, the link is selected for copying by hand and `share.copy_failed` is logged (warn).
   - The deck and group responses carry `share_code` (null when the item isn't shared), so the dialog can show an existing code and offer **Revoke** (`DELETE .../share`). After a revoke, sharing again gives a new code.
 - Deleting a card that a deck holds, or moving it to an origin that doesn't fit, shows the server's `409 card_in_use` list of decks.
 
 ### 4.2a Import page (`/share/:code`)
+- A code can also be typed into the deck list's "Have a share code?" form; case and spaces don't matter.
 - `GET /api/share/{code}` gives the preview, switching on `kind`:
-  - `deck`: the name, the author, its origin, and the cards with counts
+  - `deck`: the name, the author, its origin (`OriginPreview`), the cards with counts, and the mana curve
   - `card_group`: the name, the author, the origins its cards use, and the cards
-- `share_not_found` shows "This link doesn't work any more".
+  - `ruleset`: the name and the author only, with no import button until the rules editor (F3)
+- Before importing, the page says what the import copies (the cards, and how many custom origins), and "This is yours: importing makes a copy" when the author is the user.
+- `share_not_found`, on the preview or the import, shows "This link doesn't work any more".
 - **Import to my library** sends `POST /api/share/{code}/import`. On `kind: "deck"` it goes to `/decks/:id`, and on `kind: "card_group"` it goes to `/cards`, filtered to the new group. A deck's cards land in a new group named after the deck.
 
 ### 4.3 Rules editor
@@ -305,7 +323,7 @@ Built 2026-11-11, with the server side (backend_plan §10.2).
 | F5 | Game board: static render from a mocked state → live WS → drag-and-drop from `legal_actions` → event animations | M5, M6 | Two browsers can play a full game to a win |
 | F6 | Match history, replay viewer, responsive layout, polish | M7 | Past games can be replayed step by step; the board works on a tablet |
 
-Done: F0 and F1 (2026-11-10).
+Done: F0 and F1 (2026-11-10), F2 (2026-11-12).
 
 Tip: build the board in F5 against **mock `game_state` JSON fixtures** first (and reuse the backend's golden-replay fixtures), so UI work doesn't have to wait for the live WebSocket.
 

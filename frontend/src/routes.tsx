@@ -8,8 +8,11 @@ import { RegisterPage } from "@/auth/RegisterPage";
 import { CardEditorPage } from "@/features/cards/CardEditorPage";
 import { CardLibraryPage } from "@/features/cards/CardLibraryPage";
 import { DashboardPage } from "@/features/dashboard/DashboardPage";
+import { DeckBuilderPage } from "@/features/decks/DeckBuilderPage";
+import { DeckListPage } from "@/features/decks/DeckListPage";
 import { OriginEditorPage } from "@/features/origins/OriginEditorPage";
 import { OriginListPage } from "@/features/origins/OriginListPage";
+import { ImportPage } from "@/features/share/ImportPage";
 import { NotFoundPage } from "@/NotFoundPage";
 import { RouteErrorPage } from "@/RouteErrorPage";
 
@@ -41,6 +44,10 @@ export const routes: RouteObject[] = [
               { path: "/cards", element: <CardLibraryPage /> },
               { path: "/cards/new", element: <CardEditorPage /> },
               { path: "/cards/:id", element: <CardEditorPage /> },
+              { path: "/decks", element: <DeckListPage /> },
+              { path: "/decks/new", element: <DeckBuilderPage /> },
+              { path: "/decks/:id", element: <DeckBuilderPage /> },
+              { path: "/share/:code", element: <ImportPage /> },
               { path: "*", element: <NotFoundPage /> },
             ],
           },

@@ -4,6 +4,7 @@ import { api } from "@/api/client";
 import { unwrap } from "@/api/errors";
 import type { components } from "@/api/schema";
 
+import { fetchAllPages } from "./fetchAllPages";
 import { useRefreshCardsAndGroups } from "./useCardGroups";
 
 export type Card = components["schemas"]["CardOut"];
@@ -45,6 +46,26 @@ export function useCards(filters: CardFilters) {
       const loaded = pages.reduce((count, page) => count + page.items.length, 0);
       return lastPage.items.length > 0 && loaded < lastPage.total ? loaded : undefined;
     },
+  });
+}
+
+/**
+ * Every card of one origin, or nothing while `originId` is undefined. The deck builder's library
+ * shows one origin's cards at once, so it loads them in full and filters them itself.
+ */
+export function useOriginCards(originId: string | undefined) {
+  return useQuery({
+    queryKey: ["cards", "all", { originId }],
+    queryFn: ({ signal }) =>
+      fetchAllPages(async (offset, limit) =>
+        unwrap(
+          await api.GET("/api/cards", {
+            params: { query: { origin_id: originId, offset, limit } },
+            signal,
+          }),
+        ),
+      ),
+    enabled: originId !== undefined,
   });
 }
 
