@@ -186,8 +186,29 @@ async def create_deck(
     return result
 
 
+async def default_ruleset_id(client: AsyncClient, user: AuthedUser) -> str:
+    response = await client.get("/api/rulesets", headers=user.headers)
+    assert response.status_code == 200
+    ruleset_id: str = next(
+        r["id"] for r in response.json()["items"] if r["system_key"] == "default"
+    )
+    return ruleset_id
+
+
+async def create_ruleset(
+    client: AsyncClient, user: AuthedUser, name: str = "Blitz", **definition: Any
+) -> dict[str, Any]:
+    """A ruleset with the default rules, except for the `definition` sections given."""
+    body = {"name": name, "definition": definition}
+    response = await client.post("/api/rulesets", json=body, headers=user.headers)
+    assert response.status_code == 201, response.text
+    result: dict[str, Any] = response.json()
+    return result
+
+
 async def share(client: AsyncClient, user: AuthedUser, path: str) -> str:
-    """Shares the deck or group at `path` (for example `/api/decks/<id>`) and returns the code."""
+    """Shares the deck, group or ruleset at `path` (for example `/api/decks/<id>`) and returns
+    the code."""
     response = await client.post(f"{path}/share", headers=user.headers)
     assert response.status_code == 200, response.text
     code: str = response.json()["share_code"]

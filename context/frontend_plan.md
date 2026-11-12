@@ -170,14 +170,17 @@ frontend/
   - The editor shows no balance label. That label appears only in the card library (§3).
   - The mana field stays fully editable, and **Save is never disabled because of the formula**. Only hard bounds (for example mana 0–10) are checked.
 - **Live preview:** `CardPreview` shows the card exactly as it looks on the board.
-- **Art upload:** ask the backend for a presigned URL, `PUT` the file straight to Cloudflare R2 (the bucket needs a CORS rule allowing `PUT` from the app origin), then save `art_key` on the card. Check type and size (2 MB or less) in the browser first. The preview is cropped by CSS only (`object-fit: cover` in the art frame), and the original file is uploaded unchanged; there is no crop tool. The upload starts as soon as a file is picked, so an upload error shows at once and Save stays quick; Save waits while an upload runs. An upload that is never saved leaves an unused object in R2 (art is never deleted, backend §4).
+- **Art upload:** ask the backend for a presigned URL, `PUT` the file straight to Cloudflare R2 (the bucket needs a CORS rule allowing `PUT` from the app origin), then save `art_key` on the card. Check type and size (2 MB or less) in the browser first. The preview is cropped by CSS only (`object-fit: cover` in the art frame), and the original file is uploaded unchanged; there is no crop tool. The upload starts as soon as a file is picked, so an upload error shows at once and Save stays quick; Save waits while an upload runs. An upload that is never saved leaves an unused object in R2, which the daily art sweep deletes after 24 h (backend §10.3).
 
 ### 4.2 Deck builder
 - Two columns: the library on the left (filtered to the deck's origin plus neutral cards) and the deck list on the right, with copy counts.
 - Add cards by clicking or by dragging into the deck.
 - The deck origin is chosen once. Changing it warns that cards from the old origin will be removed. The save sends the new `origin_id` and the trimmed `cards` together, since the server rejects an origin change while old cards remain (`card_origin_mismatch`).
 - Save sends the whole card list (`PATCH /api/decks/{id}` with `cards: [{card_id, count}]`). The server checks only the hard bounds: 1–4 copies, at most 60 cards, and the deck's origin or neutral.
-- A validity panel checks the deck against a chosen ruleset's `deck` rules (size, maximum copies, neutral cards allowed).
+- A validity panel checks the deck against a chosen ruleset's `deck` rules, as information only (the server checks when the deck is picked for a room, M6):
+  - **size:** the deck needs **exactly** `deck.size` cards. Fewer or more is a problem, but saving still works.
+  - **copies:** no card above `deck.max_copies`.
+  - **neutral:** when `deck.allow_neutral` is false, neutral cards can't be mixed into a deck of another origin. A neutral deck's cards are its own origin, so a neutral deck still passes.
 - A small mana-curve chart, built from the users' own costs.
 - **Share dialog** (decks and card groups use the same one):
   - `POST /api/decks/{id}/share` (or `/api/card-groups/{id}/share`) returns `{share_code}`. Calling it again returns the same code.
@@ -196,14 +199,15 @@ frontend/
 - **Board / deck / mana / hand settings:** a plain form for the fixed settings:
   - **number of lanes (1–5, default 3)**, with a small board thumbnail that updates as the value changes
   - slots per section and section HP
-  - deck size and maximum copies
+  - deck size (exact) and maximum copies, and whether neutral cards may be mixed in
   - mana start, per turn and maximum
-  - hand size and the second-player bonus card
+  - maximum hand size and the second-player bonus card. There is no starting hand size: the starting hand is whatever the *Setup* pipeline draws (default: `draw` 3).
 - **Phase pipeline:** two sortable lists, *Setup* and *Turn*.
   - `ModulePalette` lists the phase modules from the catalog. Click or drag one to add it.
   - Each `PhaseItem` can be expanded to edit its params with `SchemaForm`, and can be removed or reordered with dnd-kit sortable.
   - Interactive phases (`action_phase`) show their **time limit** right on the collapsed item (for example "⏱ 90 s"). It defaults to 90 s and can be edited from 10 to 600 s.
-- **Validation:** call `POST /api/rulesets/validate` after edits (debounced) and show errors inline on the phase or field they belong to (for example "turn must end with end_turn").
+- **Validation:** call `POST /api/rulesets/validate` after edits (debounced) and show errors inline on the phase or field they belong to (for example "turn must end with end_turn"). Every error has a `path` into the definition (`["turn", 2, "params", "time_limit_s"]`, or `["turn"]` for a rule about the whole pipeline) and a `code` (backend_plan §6). A save with errors gets 422 `invalid_ruleset` with the same list.
+- **Starting from the default:** the default ruleset is read-only; editing it starts a copy under a new name.
 - **Save / Load / Share:** save to my rulesets, load an existing one as a starting point, and share by code.
 - Also offer a read-only "Preview turn" strip that shows the turn order as the phase tracker will show it in-game.
 

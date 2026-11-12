@@ -12,6 +12,7 @@ from enum import StrEnum
 from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic_core import ErrorDetails
 
 _BUILTIN_MODULES_PACKAGE = "app.engine.modules"
 
@@ -54,6 +55,8 @@ class InvalidParamsError(ModuleError):
     code = "invalid_params"
 
     def __init__(self, kind: ModuleKind, key: str, error: ValidationError) -> None:
+        # Kept one per param, so the rules validator can point at each bad value.
+        self.errors: list[ErrorDetails] = error.errors()
         details = "; ".join(
             f"{'.'.join(str(part) for part in item['loc']) or 'params'}: {item['msg']}"
             for item in error.errors()

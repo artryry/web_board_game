@@ -4,7 +4,7 @@ from httpx import AsyncClient
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Card, CardGroup, Deck, DeckCard, Origin, ShareCode, User
+from app.models import Card, CardGroup, Deck, DeckCard, Origin, Ruleset, ShareCode, User
 from tests.helpers import (
     AuthedUser,
     FakeS3,
@@ -13,6 +13,7 @@ from tests.helpers import (
     create_deck,
     create_group,
     create_origin,
+    create_ruleset,
     share,
     uploaded_art,
 )
@@ -30,8 +31,8 @@ async def count(db: AsyncSession, model: Any, *where: Any) -> int:
 
 
 async def alices_content(client: AsyncClient, alice: AuthedUser, fake_s3: FakeS3) -> str:
-    """A custom origin, a group, cards in and out of a deck, and both kinds of share code.
-    Returns the deck's share code."""
+    """A custom origin, a group, cards in and out of a deck, a ruleset, and every kind of share
+    code. Returns the deck's share code."""
     swamp = await create_origin(client, alice)
     group = await create_group(client, alice, "Swamp things")
     toad = await create_card(
@@ -45,7 +46,9 @@ async def alices_content(client: AsyncClient, alice: AuthedUser, fake_s3: FakeS3
     await create_card(client, alice, name="Eel", origin_id=swamp["id"])  # in no deck
     wolf = await create_card(client, alice)
     deck = await create_deck(client, alice, [(toad, 2), (wolf, 1)], origin_id=swamp["id"])
+    ruleset = await create_ruleset(client, alice)
     await share(client, alice, f"/api/card-groups/{group['id']}")
+    await share(client, alice, f"/api/rulesets/{ruleset['id']}")
     return await share(client, alice, f"/api/decks/{deck['id']}")
 
 
@@ -61,7 +64,10 @@ async def test_deleting_a_user_deletes_their_content(
     assert await count(db, Card, Card.owner_id == alice.id) == 0
     assert await count(db, Deck, Deck.owner_id == alice.id) == 0
     assert await count(db, DeckCard) == 0
+    assert await count(db, Ruleset, Ruleset.owner_id == alice.id) == 0
     assert await count(db, ShareCode) == 0
+    # The default ruleset belongs to no one.
+    assert await count(db, Ruleset, Ruleset.system_key == "default") == 1
 
 
 async def test_imported_copies_outlive_the_author(

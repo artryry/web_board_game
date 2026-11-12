@@ -50,6 +50,11 @@ Art cleanup is built (2026-11-11, see §10.3):
 - `services/art_cleanup_service.py`: a daily sweep, started from the lifespan when `ART_SWEEP_ENABLED` is set, deletes art objects that no card or origin references
 - `scripts/sweep_art.py` runs the sweep by hand, as a dry run unless `--delete` is passed
 
+M4 (rulesets, validation, share and import) is done (2026-11-12):
+- `schemas/rules.py` (`RulesetDefinition`, `RuleError`, `migrate()`) and `services/rules_service.py`, whose `validate_definition` reports every problem at once, each with a path into the definition (§6).
+- `rulesets` table with CRUD under `/api/rulesets`, `POST /api/rulesets/validate`, and the seeded read-only default ruleset (§4).
+- `share_codes.ruleset_id`: rulesets can be shared, previewed and imported like decks and groups (§8).
+
 ## 2. Stack
 
 | Concern | Choice |
@@ -83,7 +88,8 @@ backend/
       middleware.py    RequestContextMiddleware: request ids, the access line, unhandled errors
     models/            SQLAlchemy ORM: user, origin, card, card_group, deck, share_code, ruleset, game
     schemas/           Pydantic request/response DTOs
-      rules.py         RulesetDefinition (versioned)
+      rules.py         RulesetDefinition (versioned), RuleError, migrate()
+      ruleset.py       ruleset create/update/out, validate request and result
     api/               router.py (mounts everything under /api) + routers: health, auth, catalog,
                        origins, cards, card_groups, decks, rulesets, share, rooms, games, uploads,
                        client_logs
@@ -106,8 +112,9 @@ backend/
       health_service.py dependency checks for /api/health
       auth_service.py  register, authenticate, refresh, user_from_token
       catalog_service.py  the catalog, built once from the registry
-      origin_service.py / card_service.py / card_group_service.py / deck_service.py
-                       content CRUD and rules
+      origin_service.py / card_service.py / card_group_service.py / deck_service.py /
+      ruleset_service.py  content CRUD and rules
+      rules_service.py validate_definition: every ruleset problem, with its path (§6)
       upload_service.py   presigned art uploads, art-key checks on save
       art_cleanup_service.py  the daily sweep of art no row references (§10.3)
       room_service.py  room lifecycle: Redis <-> engine glue, timers
@@ -156,11 +163,15 @@ deck_cards   deck_id FK decks (ON DELETE CASCADE),
              PK(deck_id, card_id), INDEX (card_id)
 
 share_codes  code PK (10 characters), created_at,
-             deck_id FK decks NULL UNIQUE, card_group_id FK card_groups NULL UNIQUE
-             (both ON DELETE CASCADE; exactly one is set; M4 adds ruleset_id)
+             deck_id FK decks NULL UNIQUE, card_group_id FK card_groups NULL UNIQUE,
+             ruleset_id FK rulesets NULL UNIQUE
+             (all ON DELETE CASCADE; CHECK num_nonnulls(deck_id, card_group_id, ruleset_id) = 1)
 
-rulesets     id PK, owner_id FK, name, definition JSONB, schema_version,
-             created_at, updated_at   -- shared through a share_codes row (M4)
+rulesets     id PK, owner_id FK users NULL (ON DELETE CASCADE; NULL = system ruleset),
+             system_key UNIQUE NULL ('default'; set only on system rulesets),
+             name, definition JSONB (a normalized RulesetDefinition, §6), schema_version,
+             created_at, updated_at
+             CHECK (owner_id IS NULL) = (system_key IS NOT NULL), INDEX (owner_id)
 
 games        id PK, room_code, ruleset_snapshot JSONB,
              p1_id FK, p2_id FK, p1_deck_snapshot JSONB, p2_deck_snapshot JSONB,
@@ -185,7 +196,14 @@ Notes:
 - **A deck has a single origin**, one of the user's own or a system origin. Its cards are the user's own, and have that origin or `neutral`. A neutral deck holds only neutral cards.
   - A stored deck is checked only against hard bounds: 1–4 copies of a card, and at most 60 cards in total. There is no minimum, so an unfinished deck can be saved.
   - The ruleset's `deck` rules (size, `max_copies` within 1–4, `allow_neutral`) are checked when the deck is picked for a room (M6), and on the client for display (F2).
-- **Share codes** live in one `share_codes` table, with one FK column per kind. A code is unique across decks, groups and (M4) rulesets, `GET /api/share/{code}` needs one lookup, and deleting the deck or group deletes its code in the database.
+  - **`deck.size` is exact:** a deck needs exactly that many cards to be picked for a room.
+  - **`allow_neutral: false`** stops neutral cards from being mixed into a deck of another origin. A neutral deck's cards are its own origin, so a neutral deck still passes.
+- **Rulesets** follow the system-origin pattern. The **default ruleset** (`system_key: "default"`, name "Default", no owner) is inserted by a data migration with literal JSON, so every database (the test DB too) has it; `tests/test_rulesets.py` checks it still equals `RulesetDefinition()` and still validates.
+  - It is listed first for everyone and is read-only: PATCH, DELETE and share give 403 `system_ruleset_read_only`. Users copy it by `POST`ing its definition under a new name.
+  - Names are 1–40 characters and need not be unique, like decks.
+  - Nothing protects a ruleset in use: a room copies its ruleset when it is created (M6), so deleting one never breaks a game.
+  - `schema_version` is copied from the definition, so rulesets of an old version can be found with SQL.
+- **Share codes** live in one `share_codes` table, with one FK column per kind. A code is unique across decks, groups and rulesets, `GET /api/share/{code}` needs one lookup, and deleting the target deletes its code in the database.
   - The codes are 10 characters from the no-look-alike alphabet in `core/codes.py` (about 50 bits), so they can't be guessed.
 - **Content in use is protected in the database too**, behind the 409s in §8: `cards.origin_id` and `decks.origin_id` are `RESTRICT`, and `deck_cards.card_id` is a **deferred** FK.
   - Deleting a user is one `DELETE FROM users`, and the cascades remove all their content.
@@ -271,23 +289,62 @@ Field effects have no cost formula. Their strength is limited by bounds on their
   "board":  { "lanes": 3, "slots_per_section": 3, "section_hp": 20 },
   "deck":   { "size": 30, "max_copies": 2, "allow_neutral": true },
   "mana":   { "start": 1, "per_turn": 1, "max": 10 },
-  "hand":   { "start_size": 3, "max_size": 10, "second_player_bonus_card": true },
-  "setup":  [ { "module": "draw", "params": { "count": 3 } } ],
+  "hand":   { "max_size": 10, "second_player_bonus_card": true },
+  "setup":  [ { "key": "draw", "params": { "count": 3 } } ],
   "turn": [
-    { "module": "gain_mana" },
-    { "module": "draw", "params": { "count": 1 } },
-    { "module": "action_phase",
+    { "key": "gain_mana", "params": {} },
+    { "key": "draw", "params": { "count": 1 } },
+    { "key": "action_phase",
       "params": { "actor": "active", "allow": ["play", "move", "attack"], "time_limit_s": 90 } },
-    { "module": "end_turn" }
+    { "key": "end_turn", "params": {} }
   ]
 }
 ```
 
-Validation happens on `POST /api/rulesets/validate`, on save, and again when a game starts:
-- Every `module` key exists in the registry, and its `params` pass that module's `Params` model.
-- `turn` contains at least one interactive phase (`action_phase`) and exactly one `end_turn`, which must be last.
-- Numbers are within bounds: `lanes` is 1–5 (default 3), `slots_per_section` is 1–5, `section_hp` is 1–100, `deck.size` is 10–60, `mana.max` is 1–20, and `action_phase.time_limit_s` is 10–600 (default 90).
-- `schema_version` lets old rulesets be migrated when the format changes.
+- **Phases are `{key, params}`**, the same `ModuleRef` shape as card abilities and origin field effects.
+- **There is no `hand.start_size`:** the starting hand is whatever the setup phases draw.
+- **Every value has a default,** so `RulesetDefinition()` is the default ruleset above, and a missing section or field takes its default. Unknown keys anywhere are rejected.
+
+Bounds (default in brackets):
+
+| Field | Bounds |
+|---|---|
+| `board` | `lanes` 1–5 [3], `slots_per_section` 1–5 [3], `section_hp` 1–100 [20] |
+| `deck` | `size` 10–60 [30], the exact number of cards; `max_copies` 1–4 [2]; `allow_neutral` [true] (§4) |
+| `mana` | `start` 0–20 and at most `max` [1], `per_turn` 1–5 [1], `max` 1–20 [10] |
+| `hand` | `max_size` 1–15 [10], `second_player_bonus_card` [true] |
+| `setup` | 0–5 phases [draw 3] |
+| `turn` | 1–12 phases [as above] |
+
+Pipeline rules:
+- Every `key` is a registered phase module, and its `params` pass the module's `Params` (for example `action_phase.time_limit_s` is 10–600, default 90). Stored params are normalized, with their defaults filled in.
+- `turn` has at least one interactive phase (`action_phase`) and exactly one `end_turn`, which is last. Phases may repeat (two `draw`s are fine).
+- `setup` runs once, before the first turn, and waits for no one: no interactive phase and no `end_turn`.
+- `schema_version` must be 1, the only version so far. `migrate()` in `schemas/rules.py` is where a version 2 will upgrade stored rulesets; for now it changes nothing.
+
+**Validation** happens on `POST /api/rulesets/validate`, on save, and again when a game starts. One function, `rules_service.validate_definition`, reports **every** problem at once as a `RuleError`:
+
+```json
+{ "path": ["turn", 2, "params", "time_limit_s"], "code": "invalid_params", "message": "Input should be less than or equal to 600" }
+```
+
+- **`path`** points into the definition: at the value for a single value, at the phase for a phase in the wrong place, and at the list (`["turn"]`) for a rule about a whole pipeline.
+
+| `code` | `path` | When |
+|---|---|---|
+| `invalid_value` | the value | out of bounds, of the wrong type, or an unknown key (from pydantic) |
+| `unknown_module` | `[pipeline, i, "key"]` | not a registered phase |
+| `invalid_params` | `[pipeline, i, "params", <param>]` | one error per bad param |
+| `setup_phase_not_allowed` | `["setup", i]` | an interactive phase or `end_turn` in setup |
+| `turn_needs_interactive_phase` | `["turn"]` | no interactive phase in the turn |
+| `end_turn_missing` | `["turn"]` | no `end_turn` |
+| `end_turn_repeated` | `["turn", i]` | every `end_turn` but the one kept (the last phase if it is one, else the first) |
+| `end_turn_not_last` | `["turn", i]` | the kept `end_turn` isn't the last phase |
+| `mana_start_above_max` | `["mana", "start"]` | `mana.start` > `mana.max` |
+| `unsupported_schema_version` | `["schema_version"]` | an integer other than 1; it is then the only error, since the rest can't be read |
+
+- A section with shape errors (an `invalid_value` in it) skips its other checks, but the other sections are still checked, so a bad `board.lanes` and a missing `end_turn` show together.
+- The pipeline rules look only at phases with a known key, so a typo gives `unknown_module` and maybe the rule it then breaks. A phase with bad params still counts.
 
 ## 7. Game engine (`app/engine`)
 
@@ -380,7 +437,7 @@ The OpenAPI schema is at `/api/openapi.json` and the Swagger UI at `/api/docs` (
 | Card groups | `GET /api/card-groups` (with card counts and `share_code`), `POST /api/card-groups`, `GET/PATCH/DELETE /api/card-groups/{id}` (delete keeps the cards), `POST /api/card-groups/{id}/share` → `{share_code}`, `DELETE /api/card-groups/{id}/share` (revoke) |
 | Uploads | `POST /api/uploads/card-art` and `/api/uploads/origin-art`, body `{content_type, size}` → `{upload_url, art_key, expires_in}` (presigned PUT with the signed Content-Type; png/jpeg/webp, 2 MiB or less) |
 | Decks | `GET /api/decks` (summaries: `origin_id`, `card_count`, `share_code`), `POST /api/decks`, `GET/PATCH/DELETE /api/decks/{id}` (with `cards: [{card, count}]`), `POST /api/decks/{id}/share` → `{share_code}`, `DELETE /api/decks/{id}/share` (revoke) |
-| Rulesets | `GET /api/rulesets`, `POST /api/rulesets`, `GET/PATCH/DELETE /api/rulesets/{id}`, `POST /api/rulesets/validate`, `POST /api/rulesets/{id}/share` |
+| Rulesets | `GET /api/rulesets` (the default first, then mine; full `RulesetOut`s), `POST /api/rulesets {name, definition}`, `GET/PATCH/DELETE /api/rulesets/{id}` (the default is read-only), `POST /api/rulesets/validate {definition}` → always 200 `{valid, errors: [RuleError], definition}` (the normalized definition when valid, else null), `POST /api/rulesets/{id}/share` → `{share_code}`, `DELETE /api/rulesets/{id}/share` (revoke) |
 | Sharing | `GET /api/share/{code}` (preview), `POST /api/share/{code}/import` → 201. Any logged-in user can use a code, and lower-case input works. An import **forks** a copy into your library, in one transaction (see below). Only decks, card groups and rulesets have share codes: single cards are never shared. |
 | Rooms | `POST /api/rooms {ruleset_id}` → `{code}` (6 characters, no look-alike characters), `POST /api/rooms/join {code}`, `GET /api/rooms/{code}` |
 | History | `GET /api/games`, `GET /api/games/{id}` (with everything needed for a replay) |
@@ -409,13 +466,14 @@ Auth errors (every `401` carries `WWW-Authenticate: Bearer`):
 
 **Sharing:**
 - `POST .../share` returns the existing code if there is one, so sharing again gives the same code. `DELETE .../share` removes it (204, even when there is none), and the old link stops working. Sharing again makes a new code.
-- Only the owner can share or revoke. Other users get the same 404 as for any other request on the deck or group.
+- Only the owner can share or revoke. Other users get the same 404 as for any other request on the deck, group or ruleset. The default ruleset can't be shared (403 `system_ruleset_read_only`): everyone can already read it.
 - **The preview and the import use the current content**, not a snapshot taken when the code was made.
 - **Import:**
   - Each custom origin is copied once, however many cards use it. System origins are never copied; the copies use them directly.
-  - The cards are copied with the remapped origin, and they **keep the original `art_key`** (art is never deleted). The key is checked only when it changes, so editing a copy never needs the author's object.
+  - The cards are copied with the remapped origin, and they **keep the original `art_key`**: the object stays while any row references it (§10.3). The key is checked only when it changes, so editing a copy never needs the author's object.
   - A deck's copied cards go into a new card group named after the deck (no group for an empty deck). A group import makes a new group with the source's name.
   - A taken group name gets the first free ` (n)`, cut to fit 40 characters.
+  - A ruleset is copied under the same name (ruleset names need not be unique), owned by the importer, without its share code.
   - Importing your own code works as "duplicate".
 
 ```json
@@ -425,10 +483,14 @@ Auth errors (every `401` carries `WWW-Authenticate: Bearer`):
 { "kind": "card_group", "code", "name", "author",
   "origins": [OriginOut],               // every origin the cards use: system first, then by name
   "cards": [{"card": CardOut, "count": 1}], "card_count" }
+{ "kind": "ruleset", "code", "name", "author", "definition": RulesetDefinition }
 
 // POST /api/share/{code}/import
 { "kind": "deck", "deck": DeckOut }  |  { "kind": "card_group", "group": CardGroupOut }
+  |  { "kind": "ruleset", "ruleset": RulesetOut }
 ```
+
+`RulesetOut` is `{id, name, definition: RulesetDefinition, is_system, system_key, share_code, created_at, updated_at}`.
 
 **Catalog shape** (`GET /api/catalog`):
 ```json
@@ -445,10 +507,14 @@ Auth errors (every `401` carries `WWW-Authenticate: Bearer`):
 - cards: newest first, filtered by `origin_id`, `kind`, `group_id` or `ungrouped=true` (both group filters at once gives 422)
 - card groups: by name
 - decks: newest first. The cards inside a deck (and in a share preview) are ordered by mana cost, then name.
+- rulesets: the default first, then the user's own, each by name
 
 **PATCH** changes only the fields that are sent. Null clears an optional field (`hp`, `dmg`, `group_id`, `art_key`, `background_art_key`) and is rejected for a required one. A card PATCH re-checks the whole merged card, so turning a creature into a spell also needs `hp: null`.
 - A deck PATCH with `cards: [{card_id, count}]` replaces the whole list, the way the builder saves.
 - The merged deck is re-checked as a whole, so changing `origin_id` while cards of the old origin remain gives `card_origin_mismatch`. Send the new origin and the new card list together.
+- A ruleset PATCH with `definition` replaces the whole definition; sections it leaves out go back to their defaults.
+
+**Ruleset definitions in requests are plain JSON objects.** If FastAPI parsed them into `RulesetDefinition`, a bad one would get FastAPI's generic 422 body instead of `RuleError`s. Responses carry the typed `RulesetDefinition`, so the generated frontend types still have its shape. Unlike a deck, a ruleset can't be saved half-finished: an invalid one gives 422 `invalid_ruleset`.
 
 **Errors** can carry extra fields next to `code` and `message` (`AppError(extra=...)`).
 
@@ -456,9 +522,11 @@ Content errors:
 
 | Status | `code` | When |
 |---|---|---|
-| 404 | `origin_not_found` / `card_not_found` / `group_not_found` / `deck_not_found` | missing, or owned by another user (the same answer, so ids can't be probed) |
-| 404 | `share_not_found` | an unknown share code, or one that was revoked or whose deck or group was deleted |
+| 404 | `origin_not_found` / `card_not_found` / `group_not_found` / `deck_not_found` / `ruleset_not_found` | missing, or owned by another user (the same answer, so ids can't be probed) |
+| 404 | `share_not_found` | an unknown share code, or one that was revoked or whose deck, group or ruleset was deleted |
 | 403 | `system_origin_read_only` | PATCH or DELETE on a system origin |
+| 403 | `system_ruleset_read_only` | PATCH, DELETE, share or revoke on the default ruleset |
+| 422 | `invalid_ruleset` | saving a ruleset definition with problems; the body has `errors: [RuleError]`, the same list `/validate` gives (§6) |
 | 409 | `origin_in_use` | deleting an origin that cards or decks use; the body has `cards` and `decks`, each `[{id, name}]` |
 | 409 | `card_in_use` | deleting a card that a deck holds, or changing its origin so that it no longer fits one; the body has `decks: [{id, name}]` |
 | 409 | `group_name_taken` | a group name the user already has, ignoring case (including the unique-index race) |
@@ -528,7 +596,7 @@ The token in the URL never reaches the logs: the access line leaves out query st
   - There is no `/media/`: card art is served from the R2 public URL.
 - `.env.example` lists every variable used in `docker-compose.yml` and `Settings` (done in M0).
 - **R2 setup (manual, in the Cloudflare dashboard):** a bucket, an API token with Object Read & Write on it, public access (custom domain or r2.dev) for card art (`R2_PUBLIC_BASE_URL`), and a CORS rule allowing `PUT` and `GET` from the app origin with the `Content-Type` header, for browser uploads. R2 only supports presigned GET/HEAD/PUT/DELETE: there is no presigned POST, so the size can't be capped by the URL and is checked again with a `HEAD` on save.
-- `requirements.txt` and the baseline Alembic migration are done (M0). Still to do: `scripts/seed.py`, which creates starter cards, two starter decks and a default ruleset.
+- `requirements.txt` and the baseline Alembic migration are done (M0). Still to do: `scripts/seed.py`, which creates starter cards and two starter decks. The default ruleset is not its job: a data migration seeds it (M4, §4).
 
 ### 10.1 Deployment
 
@@ -619,6 +687,8 @@ Art used to be kept forever. Orphans come from deleted cards and origins, art th
 | M5 | Engine core | the full starter module set works; golden replay tests pass |
 | M6 | Rooms, WebSocket, Redis persistence, timers, reconnect | two WS clients can play a full game to a win |
 | M7 | Match history, replay data, polish | `GET /api/games/{id}` can be replayed exactly |
+
+M0–M4 are done (§1).
 
 The frontend milestones (F0–F6) in [frontend_plan.md](frontend_plan.md) are designed to start once the matching backend milestone is done.
 

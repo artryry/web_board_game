@@ -15,6 +15,7 @@ from app.models.card import Card
 from app.models.card_group import CardGroup
 from app.models.deck import Deck, DeckCard
 from app.models.origin import Origin
+from app.models.ruleset import Ruleset
 from app.models.share_code import SHARE_CODE_LENGTH, ShareCode
 from app.models.user import User
 from app.schemas.card_group import CardGroupOut
@@ -25,9 +26,17 @@ from app.schemas.share import (
     DeckImported,
     DeckPreview,
     ImportResult,
+    RulesetImported,
+    RulesetPreview,
     SharePreview,
 )
-from app.services import card_group_service, card_service, deck_service, origin_service
+from app.services import (
+    card_group_service,
+    card_service,
+    deck_service,
+    origin_service,
+    ruleset_service,
+)
 
 log = get_logger(__name__)
 
@@ -38,7 +47,7 @@ TargetColumn = InstrumentedAttribute[UUID | None]
 
 
 def _kind(column: TargetColumn) -> str:
-    """The kind named in log lines: "deck" or "card_group"."""
+    """The kind named in log lines: "deck", "card_group" or "ruleset"."""
     return column.key.removesuffix("_id")
 
 
@@ -82,6 +91,12 @@ async def share_group(db: AsyncSession, user_id: UUID, group_id: UUID) -> str:
     return await _get_or_create(db, ShareCode.card_group_id, group.id)
 
 
+async def share_ruleset(db: AsyncSession, user_id: UUID, ruleset_id: UUID) -> str:
+    # The default ruleset gives 403: everyone can already read it.
+    ruleset = await ruleset_service.get_own_ruleset(db, user_id, ruleset_id)
+    return await _get_or_create(db, ShareCode.ruleset_id, ruleset.id)
+
+
 async def revoke_deck(db: AsyncSession, user_id: UUID, deck_id: UUID) -> None:
     """The old link stops working; sharing again makes a new code."""
     deck = await deck_service.get_deck(db, user_id, deck_id, with_cards=False)
@@ -93,6 +108,11 @@ async def revoke_group(db: AsyncSession, user_id: UUID, group_id: UUID) -> None:
     await _revoke(db, ShareCode.card_group_id, group.id)
 
 
+async def revoke_ruleset(db: AsyncSession, user_id: UUID, ruleset_id: UUID) -> None:
+    ruleset = await ruleset_service.get_own_ruleset(db, user_id, ruleset_id)
+    await _revoke(db, ShareCode.ruleset_id, ruleset.id)
+
+
 # --- reading shared content (the share code is the permission, so no ownership checks) ---
 
 
@@ -100,7 +120,7 @@ async def _resolve(db: AsyncSession, code: str) -> ShareCode:
     # Codes are upper case; people may type them in lower case.
     share = await db.get(ShareCode, code.strip().upper())
     if share is None:
-        raise AppError(404, "share_not_found", "No deck or card group has this share code")
+        raise AppError(404, "share_not_found", "No deck, card group or ruleset has this share code")
     return share
 
 
@@ -117,6 +137,14 @@ async def _shared_group(db: AsyncSession, share: ShareCode) -> CardGroup:
     group = await db.get(CardGroup, share.card_group_id)
     assert group is not None
     return group
+
+
+async def _shared_ruleset(db: AsyncSession, share: ShareCode) -> tuple[Ruleset, UUID]:
+    """The ruleset and its owner. Only a user's own rulesets can be shared, so it has one."""
+    assert share.ruleset_id is not None
+    ruleset = await db.get(Ruleset, share.ruleset_id)
+    assert ruleset is not None and ruleset.owner_id is not None
+    return ruleset, ruleset.owner_id
 
 
 async def _group_cards(db: AsyncSession, group_id: UUID) -> list[Card]:
@@ -151,6 +179,15 @@ async def preview(db: AsyncSession, settings: Settings, code: str) -> SharePrevi
             origin=origin_service.origin_out(origin, settings),
             cards=deck_service.deck_card_outs(deck, settings),
             card_count=deck.card_count,
+        )
+
+    if share.ruleset_id is not None:
+        ruleset, owner_id = await _shared_ruleset(db, share)
+        return RulesetPreview(
+            code=share.code,
+            name=ruleset.name,
+            author=await _author(db, owner_id),
+            definition=ruleset_service.ruleset_definition(ruleset),
         )
 
     group = await _shared_group(db, share)
@@ -321,6 +358,29 @@ async def _import_group(db: AsyncSession, user_id: UUID, share: ShareCode) -> Ca
     return CardGroupImported(group=CardGroupOut.model_validate(group))
 
 
+async def _import_ruleset(db: AsyncSession, user_id: UUID, share: ShareCode) -> RulesetImported:
+    source, _ = await _shared_ruleset(db, share)
+    # Copied as stored: the definition was validated when it was saved.
+    ruleset = Ruleset(
+        owner_id=user_id,
+        name=source.name,
+        definition=copy.deepcopy(source.definition),
+        schema_version=source.schema_version,
+    )
+    db.add(ruleset)
+    await db.commit()
+    log.info(
+        "share.imported",
+        kind="ruleset",
+        code=share.code,
+        source_id=source.id,
+        ruleset_id=ruleset.id,
+    )
+    # Loads share_code, which isn't set on a freshly inserted row.
+    await db.refresh(ruleset)
+    return RulesetImported(ruleset=ruleset_service.ruleset_out(ruleset))
+
+
 async def import_share(
     db: AsyncSession, settings: Settings, user_id: UUID, code: str
 ) -> ImportResult:
@@ -330,4 +390,6 @@ async def import_share(
     share = await _resolve(db, code)
     if share.deck_id is not None:
         return await _import_deck(db, settings, user_id, share)
+    if share.ruleset_id is not None:
+        return await _import_ruleset(db, user_id, share)
     return await _import_group(db, user_id, share)

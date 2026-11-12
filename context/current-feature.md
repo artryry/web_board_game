@@ -1,189 +1,303 @@
-# Current feature: Art cleanup — delete art that nothing references
+# Current feature: M4 — Rulesets, validation, share and import
 
-**Status:** built 2026-11-11 on branch `art-cleanup` (from `master` at `54c2a5e`), not committed yet. Backend checks pass, and it was checked by hand against the dev bucket. Still to do: deploy, then check Render's logs (see Open questions). See [sessions/session_2026-11-11_art-cleanup.md](sessions/session_2026-11-11_art-cleanup.md).
-**Plan reference:** [backend_plan.md §1, §3, §4, §10.2](backend_plan.md) and a new §10.3 Art cleanup, [frontend_plan.md](frontend_plan.md) (F5 and F6 notes), [deployment.md](deployment.md)
-**Depends on:** M2 (art upload), M3 (imports that share art keys) and the deployment (all done).
-**Unblocks:** nothing directly. It keeps the R2 buckets from filling up with art no one can see.
+**Status:** built 2026-11-12 on the `m4-rulesets` branch, with every check passing; not committed yet. The session is in [sessions/session_2026-11-12_m4-rulesets.md](sessions/session_2026-11-12_m4-rulesets.md).
+**Plan reference:** [backend_plan.md §4, §6, §8 and §11](backend_plan.md), [coding-standards.md](coding-standards.md)
+**Depends on:** M2 (the module registry with the phase modules) and M3 (share codes and imports). Both are done.
+**Unblocks:**
+- **F2** (deck builder): it was moved after M4, so its validity panel can use real rulesets. Its plan, with what it needs from M4, is in [features/f2-deck-builder.md](features/f2-deck-builder.md).
+- **F3** (rules editor), and M6, where rooms copy a ruleset.
 
-The previous feature (logging) still has two unchecked items, the e2e run and the checks by hand. They are listed under "Next steps" in [sessions/session_2026-11-11_logging.md](sessions/session_2026-11-11_logging.md).
+Two earlier features still have follow-ups:
+- **Art cleanup:** deploy it, then check Render ([sessions/session_2026-11-11_art-cleanup.md](sessions/session_2026-11-11_art-cleanup.md)).
+- **Logging:** the e2e run and the checks by hand ([sessions/session_2026-11-11_logging.md](sessions/session_2026-11-11_logging.md)).
 
 ## Goal
-Once a day, the app deletes every art object in R2 that no `cards` or `origins` row references and that is older than 24 hours.
+A logged-in user can:
+- create, read, update and delete their own rulesets (turn-flow rules)
+- check a ruleset definition with `POST /api/rulesets/validate`, which answers **errors per field**, with a path the rules editor can point at
+- use the **default ruleset**, which is seeded for everyone and read-only
+- share a ruleset by code, and preview, revoke and import it like decks and groups
 
-None of the backend milestones (M0–M7) covered this. backend_plan §4 said "art objects are never deleted", because imported copies keep the author's `art_key`. Orphans pile up from:
-- deleted cards and origins
-- art that is replaced or cleared
-- deleted accounts: one SQL `DELETE FROM users` cascades, so no app code sees which keys went
-- abandoned uploads: each file pick uploads at once (`useArtField.ts`), so a replaced pick or a closed editor leaves an object that no row ever pointed to
+Done when (backend_plan §11): **`/validate` returns errors per field, and the default ruleset is seeded.**
 
 ## How it works
 
-### The sweep
-`art_cleanup_service.sweep(db, s3, bucket, *, older_than, max_deletes, dry_run)`:
-1. **List** the objects under `card-art/` and `origin-art/` (`ListObjectsV2`, page by page).
-   - Only keys that match the full art-key shape `{kind}/{user uuid}/{uuid}.{png|jpg|webp}` are considered. Nothing else in the bucket is ever touched.
-2. **Skip young objects:** an R2 `LastModified` newer than `older_than` (now minus 24 h). This protects uploads whose card or origin hasn't been saved yet.
-3. **Read the references after listing:** every non-null `cards.art_key` and `origins.background_art_key`, from every user.
-   - Reading after the listing means an import that commits while the bucket is listed is still seen.
-   - An imported copy keeps the author's object alive, even after the author deletes their card or account.
-4. **Candidates** = old objects − referenced keys.
-5. **Guard:** with more candidates than `max_deletes`, delete nothing and log `art.sweep_aborted` (WARNING).
-   - A database paired with the wrong bucket (a dev DB against the prod bucket) would see every object as unreferenced. The guard stops that from emptying the bucket.
-6. **Delete each candidate** with a single `DeleteObject`.
-   - The volume is small, and single deletes avoid the request checksum that the multi-delete API requires.
-   - A failed delete logs `art.delete_failed` (WARNING), and the sweep moves on. The next run retries it.
+### The rules JSON (`RulesetDefinition`, `schemas/rules.py`)
+```json
+{
+  "schema_version": 1,
+  "board": { "lanes": 3, "slots_per_section": 3, "section_hp": 20 },
+  "deck":  { "size": 30, "max_copies": 2, "allow_neutral": true },
+  "mana":  { "start": 1, "per_turn": 1, "max": 10 },
+  "hand":  { "max_size": 10, "second_player_bonus_card": true },
+  "setup": [ { "key": "draw", "params": { "count": 3 } } ],
+  "turn": [
+    { "key": "gain_mana", "params": {} },
+    { "key": "draw", "params": { "count": 1 } },
+    { "key": "action_phase",
+      "params": { "actor": "active", "allow": ["play", "move", "attack"], "time_limit_s": 90 } },
+    { "key": "end_turn", "params": {} }
+  ]
+}
+```
 
-`referenced_art_keys(db)` is the one place that lists the art-key columns. A new column that holds an art key must be added there.
+**Changes from the JSON in backend_plan §6:**
+- **No `hand.start_size`.** The starting hand is whatever the setup phases draw, so it is set in one place.
+- **Phases use `{key, params}`,** the same `ModuleRef` shape as card abilities and origin field effects. The plan's JSON said `module`.
 
-### When it runs
-- **Production:** `ART_SWEEP_ENABLED=true` (from `render.yaml`). The lifespan starts one background task:
-  - It starts with an empty log context, as backend_plan §10.2 asks of background tasks.
-  - It waits 60 s after startup, then checks once an hour.
-  - Each check is `SET art_sweep:last_run <now> NX EX <interval>` in Redis. Only the check that sets the key runs the sweep, so it runs at most once per `ART_SWEEP_INTERVAL_H` (24 h). Two instances that overlap during a deploy can't both run it.
-  - It opens its own database session.
-  - An exception is logged as `art.sweep_failed` (ERROR, with the traceback), and the loop goes on.
-  - It is cancelled when the app stops.
-- **Render's free plan sleeps** after 15 minutes without traffic, so the sweep runs only while the app is awake.
-  - It never wakes Neon by itself.
-  - It costs one Upstash command per hour awake, a list request per 1000 objects, and one request per delete.
-- **Development and tests:** off by default (`ART_SWEEP_ENABLED=false`).
-- **By hand:** `python -m scripts.sweep_art` (from `backend/`).
-  - It is a dry run unless `--delete` is passed: it logs `art.would_delete` for each key and deletes nothing.
-  - `--grace-hours N` and `--max-deletes N` override the settings.
-  - It ignores `ART_SWEEP_ENABLED`.
-  - It ships in the image, so `docker run --rm --env-file .env.prod card-table python -m scripts.sweep_art` checks production.
+**Every value has a default.** `RulesetDefinition()` *is* the default ruleset, and a test checks that the seeded row equals it.
 
-### Settings
-| Variable | Default | Meaning |
+**Bounds:**
+
+| Field | Bounds | Default |
 |---|---|---|
-| `ART_SWEEP_ENABLED` | `false` | Start the daily sweep in the app. Turn it on only where the database and the bucket belong together. |
-| `ART_SWEEP_INTERVAL_H` | `24` | At most one sweep per this many hours |
-| `ART_SWEEP_GRACE_H` | `24` | Objects younger than this are never deleted (at least 1, which is longer than any upload URL lives) |
-| `ART_SWEEP_MAX_DELETES` | `200` | Above this many candidates, the sweep deletes nothing and warns |
+| `board.lanes` | 1–5 | 3 |
+| `board.slots_per_section` | 1–5 | 3 |
+| `board.section_hp` | 1–100 | 20 |
+| `deck.size` | 10–60, **the exact number of cards** a deck needs to be picked for a room | 30 |
+| `deck.max_copies` | 1–4 | 2 |
+| `deck.allow_neutral` | bool | true |
+| `mana.start` | 0–20, at most `mana.max` | 1 |
+| `mana.per_turn` | 1–5 | 1 |
+| `mana.max` | 1–20 | 10 |
+| `hand.max_size` | 1–15 | 10 |
+| `hand.second_player_bonus_card` | bool | true |
+| `setup` | 0–5 phases | draw 3 |
+| `turn` | 1–12 phases | as above |
 
-### Log events
-| Event | Level | Fields |
-|---|---|---|
-| `art.swept` | INFO | `listed`, `too_new`, `referenced`, `candidates`, `deleted`, `failed`, `dry_run`, `duration_ms` |
-| `art.deleted` | INFO | `art_key`: a record of what was removed |
-| `art.would_delete` | INFO | `art_key` (dry run) |
-| `art.sweep_started` | INFO | `bucket`, `dry_run`, `grace_hours`, `max_deletes` (the script only) |
-| `art.sweep_aborted` | WARNING | `listed`, `candidates`, `max_deletes` |
-| `art.delete_failed` | WARNING | `art_key`, with the exception |
-| `art.sweep_failed` | ERROR | the traceback |
-| `art.sweep_skipped` | DEBUG | the sweep already ran within the interval |
+**Pipeline rules:**
+- Every `key` is a registered phase module, and its `params` pass the module's `Params`. Stored params are normalized, with their defaults filled in, as for abilities.
+- **`turn`:**
+  - at least one interactive phase (`action_phase`)
+  - exactly one `end_turn`, which is last
+  - a phase may repeat (two `draw`s are fine), unlike abilities
+- **`setup`:** only non-interactive phases, and no `end_turn`. Setup runs once, before the first turn, and stops for no one.
+- **`schema_version`** must be 1, the only version so far. A `migrate()` hook, a no-op for now, is where a version 2 would upgrade stored rulesets.
+- Unknown keys anywhere are rejected (`extra="forbid"`, as in module params).
 
-### Known limits
-- **Import race.** Suppose a share import is mid-transaction while the author deletes the source card, and the sweep reads the references in that same few-millisecond window. Then the copy loses its art. The sweep runs once a day, and the owner can upload the art again.
-- **An editor left open for more than 24 h** after a file pick gets `invalid_art_key` on Save. The user picks the file again.
-- **Games (M6 and M7) don't keep art alive.** Deck snapshots hold art keys, but the sweep doesn't count them. A card deleted mid-game, or replayed after it was deleted, shows the no-art look. F5 and F6 must fall back to it when an image fails to load.
+**The deck rules, as agreed for the room check (M6) and F2's display check:**
+- **`size`:** a deck needs exactly `size` cards to be picked for a room. Unfinished decks can still be saved; the hard bounds stay 1–4 copies and at most 60 cards.
+- **`allow_neutral: false`** stops neutral cards from being mixed into a deck of another origin. A neutral deck's cards are its own origin, so a neutral deck still passes.
+
+### Validation errors, per field
+One validator (`rules_service.validate_definition`) serves the validate endpoint and the saves. Every problem becomes a `RuleError`:
+```json
+{ "path": ["turn", 2, "params", "time_limit_s"], "code": "invalid_params", "message": "Must be at most 600" }
+```
+- **`path`** points into the definition. It is the element's path for a single value (`["board", "lanes"]`), and the list's path for a rule about a whole pipeline (`["turn"]`).
+- **Codes:**
+  - `invalid_value`: a field out of bounds or of the wrong type, from pydantic
+  - `unknown_module`
+  - `invalid_params`: one error per param, with the param in the path
+  - `turn_needs_interactive_phase`
+  - `end_turn_missing`, `end_turn_repeated` and `end_turn_not_last`
+  - `setup_phase_not_allowed`
+  - `mana_start_above_max`
+  - `unsupported_schema_version`
+- **Every error is reported at once**, not just the first one, so the editor can show them all.
+- **Request bodies take the definition as a plain JSON object.** If FastAPI parsed it into `RulesetDefinition`, a bad definition would get FastAPI's generic 422 body instead of `RuleError`s. Responses carry the typed `RulesetDefinition`, so the generated frontend types still have its shape.
+
+### The table
+```
+rulesets  id UUID PK, owner_id FK users NULL (ON DELETE CASCADE; NULL = system ruleset),
+          system_key UNIQUE NULL ('default'; set only on system rulesets),
+          name, definition JSONB, schema_version,
+          created_at, updated_at (clock_timestamp())
+          CHECK (owner_id IS NULL) = (system_key IS NOT NULL)
+          INDEX (owner_id)
+```
+- The same pattern as `origins`. Code finds the default by `system_key`, never by UUID.
+- Names are `ContentName` (1–40 characters) and need not be unique, like decks.
+- **Nothing protects a ruleset in use:** a room copies its ruleset when it is created (M6), so deleting one never breaks a game.
+- `schema_version` is copied from the definition, so old rulesets can be found with SQL when version 2 comes.
+
+**The default ruleset** is inserted by a data migration with literal JSON, like the system origins, so every database (the test DB too) has it.
+- It replaces "`scripts/seed.py` creates a default ruleset" in backend_plan §10. The seed script keeps the starter cards and decks.
+- It is read-only: PATCH, DELETE and share give 403 `system_ruleset_read_only`. Users copy it to edit, by `POST`ing its definition under a new name.
+
+### Endpoints
+| Method and path | Answer |
+|---|---|
+| `GET /api/rulesets` | `{items, total}`, paginated like every list: the default first, then mine by name. Each item is a full `RulesetOut`; definitions are small, so F2 and F4 need no second request. |
+| `POST /api/rulesets {name, definition}` | 201 `RulesetOut`, or 422 `invalid_ruleset` with `errors: [RuleError]` |
+| `GET /api/rulesets/{id}` | mine or the default; any other gives 404 `ruleset_not_found` |
+| `PATCH /api/rulesets/{id} {name?, definition?}` | `definition` replaces the whole definition; 403 on the default |
+| `DELETE /api/rulesets/{id}` | 204; its share code goes with it (cascade); 403 on the default |
+| `POST /api/rulesets/validate {definition}` | always 200: `{valid, errors, definition}`. `definition` is the normalized one (defaults filled in) when it is valid, and null otherwise. |
+| `POST /api/rulesets/{id}/share` | `{share_code}`: the existing code if there is one; 403 on the default |
+| `DELETE /api/rulesets/{id}/share` | 204, even when there is none (the plan listed only POST) |
+
+`RulesetOut` holds `id`, `name`, `definition`, `is_system`, `system_key`, `share_code`, `created_at` and `updated_at`.
+
+### Sharing and import
+- **`share_codes` gets a `ruleset_id` column** (FK, `ON DELETE CASCADE`, unique). Its check becomes `num_nonnulls(deck_id, card_group_id, ruleset_id) = 1`.
+- **Preview:** `GET /api/share/{code}` gains a third kind:
+  ```json
+  { "kind": "ruleset", "code", "name", "author", "definition": RulesetDefinition }
+  ```
+- **Import:** `POST /api/share/{code}/import` answers `{ "kind": "ruleset", "ruleset": RulesetOut }`.
+  - It copies the ruleset under the same name, owned by the importer, without its share code.
+  - Like decks and groups, it uses the current content, and importing your own code makes a copy.
+- `share_service` and its logging (`share.created`, `share.revoked`, `share.imported`) treat `kind="ruleset"` like the other two kinds.
+
+### Layout
+- **New files:**
+  - `schemas/rules.py`: `RulesetDefinition`, `RuleError` and `migrate()`
+  - `schemas/ruleset.py`: create, update, out, validate request and validate result
+  - `models/ruleset.py`
+  - `services/rules_service.py`: `validate_definition`, the pipeline rules and the error mapping
+  - `services/ruleset_service.py`: CRUD and the system ruleset
+  - `api/rulesets.py`
+  - two migrations: the table plus the `share_codes` column and check, then the default ruleset's seed
+- **The engine stays pure.** `RulesetDefinition` lives in `schemas/` (backend_plan §3) and depends only on the registry. M5's runner will receive the validated model.
+
+### Logging
+Nothing new. The share events take `kind="ruleset"`, and a rejected save shows on the access line with `error_code=invalid_ruleset`.
 
 ## Done when
-- [x] **The sweep:**
-  - deletes old, unreferenced art (abandoned uploads, replaced or cleared art, deleted cards, origins and accounts)
-  - keeps referenced art, including art that only an imported copy uses
-  - keeps young objects
-  - never touches keys outside the art-key shape
-- [x] **Safety:**
-  - off unless `ART_SWEEP_ENABLED` is set
-  - deletes nothing above `ART_SWEEP_MAX_DELETES`
-  - the script is a dry run unless `--delete` is passed
-- [x] **In the app:** at most one sweep per interval through the Redis key. A failure is logged and doesn't stop the loop.
-- [x] **Logs:** the events in the table above, with tests.
-- [x] **Checked by hand** against the dev bucket (see Notes):
-  - the dry run lists only unused objects
-  - `--delete` removes them
-  - the app sweeps once and skips after a restart
-- [x] **Checks pass:** `pytest` (476 passed), `ruff check .`, `ruff format --check .` and `mypy app tests` (plus `scripts/sweep_art.py`).
-- [ ] **In production:** after the deploy, `app.started` shows `"art_sweep":true`, and an `art.swept` line follows.
+- [x] **`RulesetDefinition`:**
+  - the bounds and the pipeline rules above
+  - `RulesetDefinition()` equals the seeded default
+  - stored params are normalized
+- [x] **`/validate`:** answers 200 with every error, each with a `path` and a `code`. A valid definition comes back normalized.
+- [x] **CRUD:**
+  - the list: the default first, then mine by name
+  - another user's ruleset gives 404
+  - the default answers 403 to PATCH, DELETE and share
+  - an invalid save gives 422 `invalid_ruleset` with the same errors
+- [x] **The default ruleset is seeded** by a migration in every database, the test DB included, and a test checks it still validates.
+- [x] **Sharing:**
+  - a ruleset can be shared, previewed, revoked and imported as a copy
+  - deleting it deletes its code
+  - the check constraint allows exactly one target
+- [x] **Checks pass:** `pytest`, `ruff check .`, `ruff format --check .`, `mypy app tests`, and `tests/test_openapi.py`, which checks that no query parameter is an object.
+- [x] **Checked by hand:** `alembic upgrade head` on the dev DB, then the endpoints through nginx (`/api/docs`).
 
 ## Decisions
 Confirmed with the user on 2026-11-11:
-- **A daily sweep only.** Nothing is deleted inline when a card or origin is deleted. One code path covers every kind of orphan, forks included.
-- **Started in the app and gated by Redis,** plus a script for manual runs.
-- **Game snapshots don't keep art alive.** The board and replays fall back to the no-art look.
-- **Production has its own bucket** (`card-art-prod`), separate from the dev bucket. The `max_deletes` guard stays as a second line of defence.
+- **M4 comes before F2,** so F2's validity panel uses real rulesets.
+- **`deck.size` is exact:** a deck needs exactly that many cards to be picked for a room. Saving an unfinished deck stays possible.
+- **`allow_neutral: false` still allows a neutral deck.** It only stops neutral cards from being mixed into a deck of another origin.
+- **The setup phases decide the starting hand.** `hand.start_size` is dropped.
+- **The default ruleset is a system ruleset** (`system_key: "default"`, no owner, read-only), seeded by a migration and listed for everyone, like the system origins.
 
-Changed or added while implementing (2026-11-11), all in the plans now:
-- **`SweepResult`** also has `candidates` and `aborted`, and `art.swept` carries `candidates`. In a dry run, `deleted` stays 0.
-- **The script logs `art.sweep_started`** with the bucket name, so every manual run shows which bucket it works on.
-- **`app.started`** gains `art_sweep` (true or false).
-- **Delete errors:** only `ClientError` and `BotoCoreError` are caught per key, as `art.delete_failed`. Anything else ends the sweep, as `art.sweep_failed`.
-- **The loop logs its own failures.** The generic background-task wrapper of backend_plan §10.2 waits for M6, which has several tasks.
-- **`FakeRedis` lives in `test_art_cleanup.py`**, not in `helpers.py`, since only that file uses it (`test_health.py` keeps its own, which has `ping`).
-- **`upload_service._art_key_pattern`** builds both the per-user check of `verify_art_key` and `is_art_key`, so the key shape is written once.
+Proposed by this plan, then confirmed with the user on 2026-11-12 (all kept as written; the default ruleset is named "Default"):
+- **Phases are `{key, params}`** (`ModuleRef`), not `{module, params}`, so one shape is used for module references everywhere.
+- **Every field has a default,** so `RulesetDefinition()` is the default ruleset.
+- **Pipeline rules:** setup takes 0–5 non-interactive phases and no `end_turn`; turn takes 1–12 phases. Phases may repeat.
+- **New bounds** for the values §6 didn't bound:
+  - `mana.start` 0–20, at most `max`
+  - `mana.per_turn` 1–5
+  - `hand.max_size` 1–15
+- **Saves reject invalid rulesets** (422 `invalid_ruleset`), as §6 says ("on save"). Unlike decks, a ruleset can't be saved half-finished.
+- **Requests take the definition as a plain JSON object,** so every error has the `RuleError` shape. Responses are typed.
+- **`DELETE /api/rulesets/{id}/share`** exists, to match decks and groups.
+- **The list returns full definitions,** not summaries.
+- **The validate endpoint returns the normalized definition** when it is valid, so the editor can show the filled-in defaults.
+
+Decided while building (2026-11-12), and written into backend_plan §6:
+- **Every error at once, across sections.** The checks that need parsed values (modules, pipeline rules, the mana rule) still run on the sections without shape errors, so a bad `board.lanes` and a missing `end_turn` show together. A section with shape errors skips its other checks.
+- **Paths:** `unknown_module` → `[pipeline, i, "key"]`; `invalid_params` → `[pipeline, i, "params", <param>]`; a phase in the wrong place (`setup_phase_not_allowed`, `end_turn_repeated`, `end_turn_not_last`) → `[pipeline, i]`; whole-pipeline rules and length bounds → `[pipeline]`; `mana_start_above_max` → `["mana", "start"]`.
+- **Which `end_turn` is kept:** the last phase if it is one, else the first. Every other one is `end_turn_repeated`, and a kept one that isn't last is `end_turn_not_last`.
+- **The pipeline rules look only at known phases.** A typo gives `unknown_module` (and maybe the rule it then breaks). A phase with bad params still counts.
+- **`schema_version`:** an integer other than 1 gives only `unsupported_schema_version`. Other types get pydantic's `invalid_value`.
+- **Unknown keys** are `invalid_value`, with the key in the path.
+- **`RuleError.code` is a `Literal`,** so the generated TS type is a union of the ten codes.
+- **Revoking a share on the default** gives 403 too, like sharing it.
+- **`InvalidParamsError` keeps pydantic's errors** (`.errors`), so the validator goes through `registry.validate_params` and still reports one error per param.
 
 ## Tasks
-Order: storage helpers, service, settings and lifespan, script, tests, docs. Each step comes with its tests.
+Order:
+1. the rules schema and its validator
+2. the model and the migrations
+3. the service and the API
+4. sharing
+5. tests
+6. docs
 
-### Backend
-- [x] `storage/client.py`: `StoredObject(key, last_modified)`, `list_objects(s3, bucket, prefix)` (a loop on `NextContinuationToken`) and `delete_object(s3, bucket, key)`.
-- [x] `upload_service.is_art_key(key)`, built from the existing key patterns.
-- [x] `services/art_cleanup_service.py`: `referenced_art_keys`, `sweep` (with `SweepResult`), `run_if_due` (the Redis gate) and `sweep_forever` (the hourly loop).
-- [x] `core/config.py`: the four `art_sweep_*` settings, all with defaults.
-- [x] `main.py`: the lifespan starts the loop when it is enabled, and cancels it on shutdown.
-- [x] `scripts/sweep_art.py`: `--delete`, `--grace-hours` and `--max-deletes`.
-- [x] Reword the "art is never deleted" comments in `share_service._copy_cards` and `test_user_deletion.py`.
+Each step comes with its tests.
 
-### Config
-- [x] `.env.example`: the four `ART_SWEEP_*` variables, with the sweep off.
-- [x] `render.yaml`: `ART_SWEEP_ENABLED` with `value: "true"`.
+### Rules
+- [x] `schemas/rules.py`: `RulesetDefinition` with its sections, the bounds and defaults, `ModuleRef` phases, `schema_version` and `migrate()`.
+- [x] `services/rules_service.py`: `validate_definition(raw) -> (RulesetDefinition | None, list[RuleError])`.
+  - It maps pydantic errors to paths, and `InvalidParamsError` to one error per param.
+  - It checks the pipeline rules and the cross-field ones.
+
+### Data
+- [x] `models/ruleset.py`, and `ruleset_id` on `ShareCode` with the new check constraint.
+- [x] A migration for the table, the column and the check constraint.
+- [x] A data migration seeding the default ruleset (literal JSON).
+
+### API
+- [x] `schemas/ruleset.py`, `services/ruleset_service.py` and `api/rulesets.py`: the endpoints above, including `/validate` and share/revoke. Register them in `api/router.py`.
+- [x] `share_service`:
+  - the `ruleset` preview kind and its import
+  - share and revoke for rulesets
+  - `SharePreview` and `ImportResult` get the third kind
+- [x] Error codes `ruleset_not_found`, `system_ruleset_read_only` and `invalid_ruleset` (with `errors`).
 
 ### Tests
-- [x] `tests/helpers.py`:
-  - `FakeS3` gets `last_modified` on `put()` (a fixed `UPLOADED_AT` by default), a paged `list_objects_v2`, `delete_object` and failing deletes
-- [x] `tests/test_art_cleanup.py` (15 tests, with its own small `FakeRedis`):
-  - an abandoned upload is deleted, and a young one is kept
-  - card art and origin backgrounds in use are kept
-  - art that is replaced through PATCH or cleared is deleted
-  - an imported copy keeps the author's art after the author deletes the card, and after the account is deleted
-  - a deleted account's art is deleted when nothing imported it
-  - keys outside the art-key shape are ignored
-  - a dry run deletes nothing
-  - the `max_deletes` guard
-  - a failed delete is logged, and the rest still go
-  - listing across pages
-  - `run_if_due` runs once, then skips, and keeps uploads within the grace period
-  - the loop logs `art.sweep_failed` and goes on
-  - the fields of `art.swept`
-- [x] **By hand** against the dev bucket (see Notes).
+- [x] **`tests/test_rules_schema.py`:**
+  - the defaults equal the seeded JSON
+  - each bound
+  - unknown keys
+  - `schema_version`
+- [x] **`tests/test_rules_validation.py`:** each error code, with its `path`, and several errors at once.
+  - `end_turn` missing, repeated and not last
+  - no interactive phase
+  - an interactive phase in setup
+  - an unknown module
+  - a bad param, with its path into `params`
+  - `mana.start` above `max`
+  - repeated phases are accepted
+- [x] **`tests/test_rulesets.py`:**
+  - CRUD and its list order
+  - 404 for another user's ruleset
+  - 403 on the default
+  - 422 `invalid_ruleset`
+  - `/validate`, valid and invalid
+  - the default seed still validates
+  - deleting a user deletes their rulesets
+- [x] **`tests/test_share.py`:**
+  - share, preview, revoke and import a ruleset
+  - importing your own code
+  - deleting the ruleset deletes its code
+  - the default can't be shared
+- [x] **`tests/test_user_deletion.py`:** a user's rulesets and their codes go with the user.
 
 ### Docs
 - [x] [backend_plan.md](backend_plan.md):
-  - §1: art cleanup is built
-  - §3: the new service and script
-  - §4: the forks note ("kept while any row references it") and the games note
-  - §10.2: the `art.*` events
-  - a new §10.3 Art cleanup
-  - §11: a line saying which cross-cutting features were built between milestones
-- [x] [frontend_plan.md](frontend_plan.md): in F5 and F6, card art falls back to the no-art look when the image fails to load.
-- [x] [deployment.md](deployment.md):
-  - the `ART_SWEEP_*` variables
-  - running the dry run against production
-  - troubleshooting `art.sweep_aborted` and `art.sweep_failed`
-  - R2 in the free-tier table
+  - §1: M4 is done
+  - §3: the new files
+  - §4: the `rulesets` table, `share_codes.ruleset_id`, and notes on the default ruleset, `deck.size` and `allow_neutral`
+  - §6: the new JSON (`key`, no `start_size`), the bounds, the pipeline rules and the error shape
+  - §8: the endpoints, the preview and import shapes, and the error codes
+  - §10: `seed.py` no longer seeds the ruleset
+  - §11: M4 done
+- [x] [frontend_plan.md](frontend_plan.md):
+  - §4.3: the settings no longer have a start hand size; the setup pipeline draws it
+  - §4.2: the validity panel's rules (exact size, the neutral rule)
+- [x] [features/f2-deck-builder.md](features/f2-deck-builder.md): its M4 needs and open questions are now answered.
 - [x] Update this file, and write the session file.
 
 ## Out of scope
-- **Deleting inline** when a card or origin is deleted or its art changes.
-- **Keeping art alive for finished games** (see Decisions).
-- **An admin endpoint** or a GitHub Actions schedule for the sweep.
-- **A trash prefix** with an R2 lifecycle rule, to make deletes recoverable.
-- **Account deletion endpoint:** still none. The sweep already covers the art of an account deleted in SQL.
+- **Running a ruleset.** The engine and the phase behaviour come in M5. M4 only stores and validates.
+- **The rules editor UI:** F3.
+- **Checking a deck against a ruleset on the server:** M6 does it when a deck is picked for a room. F2 does it in the browser for display.
+- **Migrating stored rulesets to a version 2.** The `migrate()` hook is there, but there is only version 1.
+- **Starter cards and decks** (`scripts/seed.py`).
+- **Rate limits.**
 
 ## Notes
-- **Checked by hand on 2026-11-11** against the local Postgres and Redis and the dev bucket `web-board-game`:
-  - **Dry run:** listed 3 objects. 1 was younger than 24 h. 2 were unused: the two test images that the F1 browser check left behind ([session_2026-11-10_f1.md](sessions/session_2026-11-10_f1.md)), one under `card-art/` and one under `origin-art/`.
-  - **`--delete`:** deleted both, with `failed: 0`. So the existing R2 token allows single deletes. A second dry run listed 1 object.
-  - **The app with `ART_SWEEP_ENABLED=true`:**
-    - `app.started` showed `"art_sweep":true`, and `art.swept` followed after about 60 s, with no request id on the line
-    - a restart logged `art.sweep_skipped`
-    - the `art_sweep:last_run` key was removed from local Redis afterwards
-  - **The production image** builds, and `python -m scripts.sweep_art --help` runs in it.
-- **R2 listing** returns a timezone-aware `LastModified`, so it compares directly with `datetime.now(UTC)`.
+- **Already in place:**
+  - the phase modules (`engine/modules/phases/`: `draw`, `gain_mana`, `lane_combat`, `discard_to_hand_limit`, `action_phase` and `end_turn`), with their `Params` and `interactive`
+  - the catalog lists them
+  - `registry.validate_params` raises `UnknownModuleError` or `InvalidParamsError`
+- **Patterns to reuse:**
+  - from origins: the system rows (`system_key`, the read-only 403, the seed migration with literal data and a test that it still validates)
+  - from share: `_get_or_create` and `_revoke` take the target column, so a third column fits
+  - `ModuleRef` and `normalize_module_refs` (`services/common.py`)
+- **`tests/conftest.py` runs `alembic upgrade head`** on the test DB, so the seed migration is exercised by every test run.
 
 ## Open questions
-- **After merging and deploying:**
-  - check that Render's Environment shows `ART_SWEEP_ENABLED=true` from the Blueprint (add it by hand if not)
-  - check that `app.started` shows `"art_sweep":true`
-  - consider a dry run against production first: `docker run --rm --env-file .env.prod card-table python -m scripts.sweep_art`
+None at the moment.

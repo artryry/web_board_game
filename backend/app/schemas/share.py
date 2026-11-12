@@ -5,6 +5,8 @@ from pydantic import BaseModel, Field
 from app.schemas.card_group import CardGroupOut
 from app.schemas.deck import DeckCardOut, DeckOut
 from app.schemas.origin import OriginOut
+from app.schemas.rules import RulesetDefinition
+from app.schemas.ruleset import RulesetOut
 
 
 class ShareCodeOut(BaseModel):
@@ -34,7 +36,17 @@ class CardGroupPreview(BaseModel):
     card_count: int
 
 
-SharePreview = Annotated[DeckPreview | CardGroupPreview, Field(discriminator="kind")]
+class RulesetPreview(BaseModel):
+    kind: Literal["ruleset"] = "ruleset"
+    code: str
+    name: str
+    author: str
+    definition: RulesetDefinition
+
+
+SharePreview = Annotated[
+    DeckPreview | CardGroupPreview | RulesetPreview, Field(discriminator="kind")
+]
 
 
 class DeckImported(BaseModel):
@@ -47,4 +59,11 @@ class CardGroupImported(BaseModel):
     group: CardGroupOut
 
 
-ImportResult = Annotated[DeckImported | CardGroupImported, Field(discriminator="kind")]
+class RulesetImported(BaseModel):
+    kind: Literal["ruleset"] = "ruleset"
+    ruleset: RulesetOut
+
+
+ImportResult = Annotated[
+    DeckImported | CardGroupImported | RulesetImported, Field(discriminator="kind")
+]

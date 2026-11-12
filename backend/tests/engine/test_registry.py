@@ -86,6 +86,19 @@ def test_validate_params_rejects_bad_params(params: dict[str, object]) -> None:
     assert "sample" in exc_info.value.message
 
 
+def test_invalid_params_keeps_one_error_per_param() -> None:
+    reg = ModuleRegistry()
+    reg.register(SampleFeature, "sample")
+
+    with pytest.raises(InvalidParamsError) as exc_info:
+        reg.validate_params(FeatureModule, "sample", {"amount": 4, "extra": 1})
+
+    assert [(item["loc"], item["type"]) for item in exc_info.value.errors] == [
+        (("amount",), "less_than_equal"),
+        (("extra",), "extra_forbidden"),
+    ]
+
+
 def test_cost_reads_the_cost_spec() -> None:
     assert SampleFeature.cost(SampleFeature.Params(amount=3)) == 7
 

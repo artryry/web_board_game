@@ -1,9 +1,13 @@
 from typing import Any
+from uuid import UUID
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.codes import CODE_ALPHABET
+from app.models import ShareCode
 from app.services import share_service
 from tests.helpers import (
     PUBLIC_BASE_URL,
@@ -14,6 +18,8 @@ from tests.helpers import (
     create_deck,
     create_group,
     create_origin,
+    create_ruleset,
+    default_ruleset_id,
     logged,
     share,
     system_origin_id,
@@ -134,16 +140,56 @@ async def test_revoke_a_group_share(client: AsyncClient, alice: AuthedUser) -> N
     assert_error(preview, 404, "share_not_found")
 
 
+async def test_sharing_a_ruleset_twice_gives_the_same_code(
+    client: AsyncClient, alice: AuthedUser
+) -> None:
+    ruleset = await create_ruleset(client, alice)
+    path = f"/api/rulesets/{ruleset['id']}"
+
+    first = await share(client, alice, path)
+    second = await share(client, alice, path)
+
+    assert first == second
+    assert (await get(client, alice, path))["share_code"] == first
+    assert (await get(client, alice, "/api/rulesets"))["items"][1]["share_code"] == first
+
+
+async def test_revoke_a_ruleset_share(client: AsyncClient, alice: AuthedUser) -> None:
+    ruleset = await create_ruleset(client, alice)
+    path = f"/api/rulesets/{ruleset['id']}"
+    code = await share(client, alice, path)
+
+    revoked = await client.delete(f"{path}/share", headers=alice.headers)
+    revoked_again = await client.delete(f"{path}/share", headers=alice.headers)
+    preview = await client.get(f"/api/share/{code}", headers=alice.headers)
+
+    assert revoked.status_code == 204
+    assert revoked_again.status_code == 204
+    assert_error(preview, 404, "share_not_found")
+    assert (await get(client, alice, path))["share_code"] is None
+
+
+async def test_the_default_ruleset_cannot_be_shared(client: AsyncClient, alice: AuthedUser) -> None:
+    # Everyone can already read it; to share its rules, share a copy.
+    path = f"/api/rulesets/{await default_ruleset_id(client, alice)}/share"
+
+    assert_error(await client.post(path, headers=alice.headers), 403, "system_ruleset_read_only")
+    assert_error(await client.delete(path, headers=alice.headers), 403, "system_ruleset_read_only")
+
+
 async def test_deleting_the_target_removes_its_code(client: AsyncClient, alice: AuthedUser) -> None:
     deck = await create_deck(client, alice, [])
     group = await create_group(client, alice, "Beasts")
+    ruleset = await create_ruleset(client, alice)
     deck_code = await share(client, alice, f"/api/decks/{deck['id']}")
     group_code = await share(client, alice, f"/api/card-groups/{group['id']}")
+    ruleset_code = await share(client, alice, f"/api/rulesets/{ruleset['id']}")
 
     await client.delete(f"/api/decks/{deck['id']}", headers=alice.headers)
     await client.delete(f"/api/card-groups/{group['id']}", headers=alice.headers)
+    await client.delete(f"/api/rulesets/{ruleset['id']}", headers=alice.headers)
 
-    for code in (deck_code, group_code):
+    for code in (deck_code, group_code, ruleset_code):
         response = await client.get(f"/api/share/{code}", headers=alice.headers)
         assert_error(response, 404, "share_not_found")
 
@@ -153,13 +199,17 @@ async def test_only_the_owner_can_share(
 ) -> None:
     deck = await create_deck(client, alice, [])
     group = await create_group(client, alice, "Beasts")
+    ruleset = await create_ruleset(client, alice)
     deck_path = f"/api/decks/{deck['id']}/share"
     group_path = f"/api/card-groups/{group['id']}/share"
+    ruleset_path = f"/api/rulesets/{ruleset['id']}/share"
 
     assert_error(await client.post(deck_path, headers=bob.headers), 404, "deck_not_found")
     assert_error(await client.delete(deck_path, headers=bob.headers), 404, "deck_not_found")
     assert_error(await client.post(group_path, headers=bob.headers), 404, "group_not_found")
     assert_error(await client.delete(group_path, headers=bob.headers), 404, "group_not_found")
+    assert_error(await client.post(ruleset_path, headers=bob.headers), 404, "ruleset_not_found")
+    assert_error(await client.delete(ruleset_path, headers=bob.headers), 404, "ruleset_not_found")
 
 
 async def test_single_cards_have_no_share_code(client: AsyncClient, alice: AuthedUser) -> None:
@@ -168,6 +218,19 @@ async def test_single_cards_have_no_share_code(client: AsyncClient, alice: Authe
     response = await client.post(f"/api/cards/{card['id']}/share", headers=alice.headers)
 
     assert response.status_code in (404, 405)
+
+
+@pytest.mark.parametrize("targets", ["none", "two"])
+async def test_a_code_has_exactly_one_target(
+    client: AsyncClient, db: AsyncSession, alice: AuthedUser, targets: str
+) -> None:
+    deck = await create_deck(client, alice, [])
+    ruleset = await create_ruleset(client, alice)
+    columns = {"deck_id": UUID(deck["id"]), "ruleset_id": UUID(ruleset["id"])}
+
+    with pytest.raises(IntegrityError, match="ck_share_codes_one_target"):
+        async with db.begin_nested():
+            db.add(ShareCode(code="ABCDEFGHJK", **(columns if targets == "two" else {})))
 
 
 async def test_unknown_code(client: AsyncClient, alice: AuthedUser) -> None:
@@ -227,6 +290,25 @@ async def test_preview_a_group(client: AsyncClient, alice: AuthedUser, bob: Auth
     assert [origin["name"] for origin in preview["origins"]] == ["Neutral", "Swamp"]
     assert preview["cards"] == [{"card": wolf, "count": 1}, {"card": toad, "count": 1}]
     assert preview["card_count"] == 2
+
+
+async def test_preview_a_ruleset(client: AsyncClient, alice: AuthedUser, bob: AuthedUser) -> None:
+    ruleset = await create_ruleset(client, alice, "Blitz", mana={"start": 3})
+    path = f"/api/rulesets/{ruleset['id']}"
+    code = await share(client, alice, path)
+
+    preview = await get(client, bob, f"/api/share/{code}")
+    await client.patch(path, json={"definition": {"mana": {"start": 5}}}, headers=alice.headers)
+    later = await get(client, bob, f"/api/share/{code}")
+
+    assert preview == {
+        "kind": "ruleset",
+        "code": code,
+        "name": "Blitz",
+        "author": "alice",
+        "definition": ruleset["definition"],
+    }
+    assert later["definition"]["mana"]["start"] == 5
 
 
 # --- import ---
@@ -342,6 +424,40 @@ async def test_imported_group_names_get_a_number(
 
     assert first["name"] == "x" * 36 + " (2)"
     assert second["name"] == "x" * 36 + " (3)"
+
+
+async def test_import_a_ruleset(client: AsyncClient, alice: AuthedUser, bob: AuthedUser) -> None:
+    source = await create_ruleset(client, alice, "Blitz", mana={"start": 3})
+    code = await share(client, alice, f"/api/rulesets/{source['id']}")
+
+    result = await import_code(client, bob, code)
+
+    assert result["kind"] == "ruleset"
+    copy = result["ruleset"]
+    assert copy["id"] != source["id"]
+    assert (copy["name"], copy["definition"]) == ("Blitz", source["definition"])
+    assert (copy["is_system"], copy["system_key"], copy["share_code"]) == (False, None, None)
+    assert await get(client, bob, f"/api/rulesets/{copy['id']}") == copy
+    assert (await get(client, alice, f"/api/rulesets/{source['id']}"))["share_code"] == code
+
+
+async def test_importing_your_own_ruleset_code_duplicates(
+    client: AsyncClient, alice: AuthedUser
+) -> None:
+    source = await create_ruleset(client, alice, "Blitz")
+    code = await share(client, alice, f"/api/rulesets/{source['id']}")
+
+    copy = (await import_code(client, alice, code))["ruleset"]
+    await client.patch(
+        f"/api/rulesets/{copy['id']}",
+        json={"definition": {"mana": {"max": 5}}},
+        headers=alice.headers,
+    )
+
+    rulesets = (await get(client, alice, "/api/rulesets"))["items"]
+    assert [ruleset["name"] for ruleset in rulesets] == ["Default", "Blitz", "Blitz"]
+    original = await get(client, alice, f"/api/rulesets/{source['id']}")
+    assert original["definition"] == source["definition"]
 
 
 async def test_importing_your_own_code_duplicates(
@@ -463,3 +579,21 @@ async def test_an_import_is_logged_with_its_steps(
         "committed",
     ]
     assert {step["log_level"] for step in steps} == {"debug"}
+
+
+async def test_a_ruleset_share_and_import_are_logged(
+    client: AsyncClient, alice: AuthedUser, bob: AuthedUser, logs: list[dict[str, Any]]
+) -> None:
+    source = await create_ruleset(client, alice)
+
+    code = await share(client, alice, f"/api/rulesets/{source['id']}")
+    copy = (await import_code(client, bob, code))["ruleset"]
+
+    (created,) = logged(logs, "share.created")
+    assert (created["kind"], str(created["target_id"])) == ("ruleset", source["id"])
+    (imported,) = logged(logs, "share.imported")
+    assert imported["kind"] == "ruleset"
+    assert imported["code"] == code
+    assert str(imported["source_id"]) == source["id"]
+    assert str(imported["ruleset_id"]) == copy["id"]
+    assert imported["user_id"] == str(bob.id)

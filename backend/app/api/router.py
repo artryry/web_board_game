@@ -9,6 +9,7 @@ from app.api import (
     decks,
     health,
     origins,
+    rulesets,
     share,
     uploads,
 )
@@ -22,5 +23,6 @@ api_router.include_router(origins.router)
 api_router.include_router(cards.router)
 api_router.include_router(card_groups.router)
 api_router.include_router(decks.router)
+api_router.include_router(rulesets.router)
 api_router.include_router(share.router)
 api_router.include_router(uploads.router)
