@@ -24,7 +24,7 @@ The frontend for the card-game constructor described in [project_description.md]
 | Routing | React Router 8 in data mode: `createBrowserRouter`, with `RouterProvider` from `react-router/dom` (not framework mode) |
 | Server data | TanStack Query 5. Client errors (4xx) are never retried. |
 | Live game state | Zustand (added in F4/F5, when the game store lands) |
-| Drag-and-drop | dnd-kit: `@dnd-kit/core` 6.3.1 in F2 (the deck builder: library cards onto the deck, pointer sensor only), `@dnd-kit/sortable` 10.0.0 in F3 (the phase pipeline). The newer `@dnd-kit/react` was still pre-1.0 (0.5.3) when F2 was built (2026-11-12). |
+| Drag-and-drop | dnd-kit: `@dnd-kit/core` 6.3.1 in F2 (the deck builder: library cards onto the deck, pointer sensor only), `@dnd-kit/sortable` 10.0.0 in F3 (the phase pipelines, pointer only; Move up/down buttons are the keyboard path). The newer `@dnd-kit/react` was still pre-1.0 (0.5.3) when F2 was built (2026-11-12). |
 | Animation | Framer Motion, added in F5 |
 | Icons | `lucide-react`, added in F1. Each icon is imported by name, so the bundle holds only the ones used: the catalog's 16 origin icons (all Lucide names) and a few UI icons. |
 | Styling | Tailwind CSS 4. The design tokens live in CSS, in the `@theme` block of `src/styles/index.css` (no `tailwind.config.js`). |
@@ -61,15 +61,17 @@ frontend/
       queryClient.ts     QueryClient defaults (no retries on 4xx)
       schema.d.ts        generated OpenAPI types
       bounds.ts          content input limits copied from the backend schemas (names, stats, art,
-                         a deck's 4 copies and 60 cards)
+                         a deck's 4 copies and 60 cards), and copyName ("<name> copy"). Ruleset
+                         bounds are not copied: /validate reports them.
       showServerError.ts maps API error codes onto form fields, with a code → field map per form
       inUse.ts           reads the [{id, name}] lists of a 409 (origin_in_use, card_in_use) and of
                          a deck save's card_origin_mismatch
       uploadArt.ts       art upload: the presign request, then the PUT to R2 (no bearer token)
       hooks/             useLibraryCounts, useOrigins (findNeutral), useCards (useOriginCards: one
                          origin in full), useCardGroups, useArtUpload, fetchAllPages, useDecks,
-                         useRulesets (findDefaultRuleset), useShare (share, revoke, preview,
-                         import); later useRooms ...
+                         useRulesets (findDefaultRuleset, CRUD, useRulesetValidation: the
+                         debounced /validate), useShare (share, revoke, preview, import; decks,
+                         card groups and rulesets); later useRooms ...
     auth/
       tokens.ts          access token in memory, the session hint in localStorage, cross-tab logout
       AuthContext.ts     auth state and context types
@@ -84,7 +86,10 @@ frontend/
       SchemaForm.tsx     renders a params form from a JSON Schema, inside the editor's own form
       EnumArrayParams.tsx  arrays of enums: checkboxes (uniqueItems) or a list of selects
       ModuleListField.tsx  chosen modules (abilities, field effects): add, remove, limit, no repeats
-      useFieldError.ts, humanize.ts
+      useFieldError.ts   a field's error: the form's own check, then an outside one
+      outsideFieldErrors.ts  errors from outside the form, by field path (the rules editor's
+                         /validate answer)
+      humanize.ts
     features/
       dashboard/         DashboardPage
       origins/           OriginListPage, OriginListItem, DeleteOriginDialog, OriginEditorPage,
@@ -101,12 +106,18 @@ frontend/
       decks/             DeckListPage, DeckListItem, ShareCodeForm, DeleteDeckDialog,
                          DeckBuilderPage, DeckBuilder (state and Save), DeckHeader, DeckDnd,
                          DeckLibraryPanel, LibraryCardButton, DeckPanel (the drop target),
-                         OriginChangeDialog, useLeaveGuard + LeaveGuardDialog, useLibraryCards,
+                         OriginChangeDialog, useLibraryCards,
                          ManaCurveChart, DeckValidityPanel; pure: deckEntries, manaCurve,
                          deckProblems (F4's lobby reuses it)
-      rules/             RulesListPage, RulesEditorPage, BoardSettingsForm,
-                         PhasePipeline (sortable), ModulePalette, PhaseItem
-      share/             ShareDialog (decks and card groups), shareLink, ImportPage, ImportPanel,
+      rules/             RulesListPage, RulesetListItem, DeleteRulesetDialog, RulesEditorPage,
+                         RulesEditor (the form, the validation, Save), RulesHeader,
+                         ValidationStatus, RulesSettingsForm (SettingNumber, SettingCheckbox,
+                         BoardThumbnail), RulesPhases (both pipelines, the palette, the turn
+                         order), PhasePipeline (sortable), PhaseItem, ModulePalette,
+                         TurnOrderStrip, RulesetSummary (read-only, for the import page),
+                         ruleErrorsContext, useWatchedDefinition; pure: rulesetValues,
+                         phaseList, ruleErrors (placeRuleErrors, errorPlace), settingFields
+      share/             ShareDialog (decks, card groups, rule sets), shareLink, ImportPage, ImportPanel,
                          SharedContent, SharedCards
       rooms/             CreateRoomPage, JoinByCodeDialog, LobbyView
       game/              GameView, GameBoard, Lane, Section, Slot, CreatureCard,
@@ -125,12 +136,14 @@ frontend/
       gameStore.ts       Zustand store for room and game state
       eventQueue.ts      plays server events one after another as animations
     ui/                  Button, ButtonLink, IconButton, TextField, SelectField, Modal, ConfirmDialog,
-                         ErrorAlert, InUseList, LoadingState, Spinner, CardFrame; later Toast,
-                         Tabs, HpBar
+                         ErrorAlert, InUseList, LoadingState, Spinner, CardFrame,
+                         useLeaveGuard + LeaveGuardDialog (the deck builder and the rules editor),
+                         useDebouncedValue, dragDistance; later Toast, Tabs, HpBar
     styles/              index.css: Tailwind and the @theme design tokens
     test/                Vitest setup, MSW fake API (auth handlers, content, deck and share handlers
-                         over an in-memory store, catalog and ruleset fixtures, a fake R2),
-                         renderApp and renderWithForm helpers,
+                         over an in-memory store, ruleset handlers with a simplified /validate,
+                         catalog and ruleset fixtures, a fake R2), renderApp, renderWithForm and
+                         rulesEditor helpers,
                          logCapture (a memory log sink: tests check entries, the console stays quiet)
   e2e/                   Playwright specs (and global-setup.ts, which checks /api/health)
 ```
@@ -147,8 +160,8 @@ frontend/
 | `/cards/new`, `/cards/:id` | Card editor | See §4.1 |
 | `/decks` | Deck list | Newest first, with Load more: origin badge, the card count against the default ruleset's size ("24 / 30 cards"; the full check needs the cards, so it is in the builder), a "Shared" mark; share and delete. A "Have a share code?" form opens `/share/<code>`. |
 | `/decks/new`, `/decks/:id` | Deck builder | See §4.2. A new deck is created on its first Save. |
-| `/rules` | Rules list | My rulesets; duplicate / share / delete |
-| `/rules/new`, `/rules/:id` | Rules editor | See §4.3 |
+| `/rules` | Rules list | The default rule set (View, Duplicate), then my own by name (Edit, Duplicate, Share, Delete), each with a summary ("3 lanes · 30-card decks · 4 turn phases") and a "Shared" mark |
+| `/rules/new`, `/rules/:id` | Rules editor | See §4.3. `/rules/new` starts from the default; `?from=<id>` duplicates a rule set as "<name> copy". Nothing is created until Save. |
 | `/share/:code` | Import | Preview of a shared deck, card group or ruleset → **Import to my library** |
 | `/rooms/new` | Create room | Pick a ruleset → `POST /api/rooms` → go to `/room/:code` |
 | `/room/:code` | Lobby, then game | See §4.4 and §5. The same route switches from lobby to game when the game starts. |
@@ -208,26 +221,38 @@ frontend/
 - `GET /api/share/{code}` gives the preview, switching on `kind`:
   - `deck`: the name, the author, its origin (`OriginPreview`), the cards with counts, and the mana curve
   - `card_group`: the name, the author, the origins its cards use, and the cards
-  - `ruleset`: the name and the author only, with no import button until the rules editor (F3)
+  - `ruleset`: the name, the author, and its settings and phases, read-only (`RulesetSummary`)
 - Before importing, the page says what the import copies (the cards, and how many custom origins), and "This is yours: importing makes a copy" when the author is the user.
 - `share_not_found`, on the preview or the import, shows "This link doesn't work any more".
-- **Import to my library** sends `POST /api/share/{code}/import`. On `kind: "deck"` it goes to `/decks/:id`, and on `kind: "card_group"` it goes to `/cards`, filtered to the new group. A deck's cards land in a new group named after the deck.
+- **Import to my library** sends `POST /api/share/{code}/import`. On `kind: "deck"` it goes to `/decks/:id`, on `kind: "card_group"` it goes to `/cards`, filtered to the new group, and on `kind: "ruleset"` it goes to `/rules/:id`. A deck's cards land in a new group named after the deck; a rule set is copied under the same name.
 
 ### 4.3 Rules editor
 - **Board / deck / mana / hand settings:** a plain form for the fixed settings:
-  - **number of lanes (1–5, default 3)**, with a small board thumbnail that updates as the value changes
+  - **number of lanes (1–5, default 3)**, with a small board thumbnail (lanes × 2 rows of sections, each with its slots) that updates as the values change
   - slots per section and section HP
   - deck size (exact) and maximum copies, and whether neutral cards may be mixed in
-  - mana start, per turn and maximum
+  - mana start, per turn and maximum, and the mana mode: **Grow and refill** (Hearthstone-style) or **Restore a fixed amount** (backend_plan §7.3), with a hint that says what the chosen one does
   - maximum hand size and the second-player bonus card. There is no starting hand size: the starting hand is whatever the *Setup* pipeline draws (default: `draw` 3).
-- **Phase pipeline:** two sortable lists, *Setup* and *Turn*.
-  - `ModulePalette` lists the phase modules from the catalog. Click or drag one to add it.
-  - Each `PhaseItem` can be expanded to edit its params with `SchemaForm`, and can be removed or reordered with dnd-kit sortable.
+  - Whole numbers, with **no bounds on the client**: `/validate` reports each bound under its field.
+- **Phase pipeline:** two lists, *Setup* (runs once, before the first turn) and *Turn*.
+  - `ModulePalette` lists the phase modules from the catalog. **Add to Setup** and **Add to Turn** add one with its default params at the end (in Turn, before a final `end_turn`). The palette doesn't hide phases that can't go in Setup: the server's error says why.
+  - Each `PhaseItem` shows its name and params (`describeParams`), and expands to edit its params with `SchemaForm`, which keeps the catalog's own checks (for example "Use 600 or less."). It is reordered by dragging its handle (dnd-kit sortable, pointer only, within its own pipeline) or with **Move up / Move down**, and can be removed. A phase the catalog doesn't know shows as "Unknown phase “<key>”" and can only be removed.
   - Interactive phases (`action_phase`) show their **time limit** right on the collapsed item (for example "⏱ 90 s"). It defaults to 90 s and can be edited from 10 to 600 s.
-- **Validation:** call `POST /api/rulesets/validate` after edits (debounced) and show errors inline on the phase or field they belong to (for example "turn must end with end_turn"). Every error has a `path` into the definition (`["turn", 2, "params", "time_limit_s"]`, or `["turn"]` for a rule about the whole pipeline) and a `code` (backend_plan §6). A save with errors gets 422 `invalid_ruleset` with the same list.
-- **Starting from the default:** the default ruleset is read-only; editing it starts a copy under a new name.
-- **Save / Load / Share:** save to my rulesets, load an existing one as a starting point, and share by code.
-- Also offer a read-only "Preview turn" strip that shows the turn order as the phase tracker will show it in-game.
+  - A read-only **Turn order** strip lists the turn's phases, as the phase tracker will show them in-game.
+- **Validation:** `POST /api/rulesets/validate` runs 500 ms after the last change. It is a query keyed by the definition, so a newer change cancels the older request. The header shows "Checking…", "No problems" or "N problems", with every message and where it is. Every error has a `path` into the definition (backend_plan §6) and shows where it points:
+  - a setting (`["board", "lanes"]`) → under that field
+  - a phase param (`["turn", 2, "params", "time_limit_s"]`) → under the field in the phase's `SchemaForm`, with a mark on the collapsed phase
+  - a phase or its key (`["turn", 2]`, `["turn", 2, "key"]`) → on the phase
+  - a pipeline rule (`["turn"]`) → under the pipeline's heading
+  - anything else → only in the header's list
+
+  The errors stay out of React Hook Form, since `setError` would stop Save; `SchemaForm`'s fields read them from `OutsideFieldErrors`. Save is never disabled by the validation. A save with errors gets 422 `invalid_ruleset` with the same list, shown the same way.
+- **Starting from the default:** `/rules/new` starts from the default rule set's definition with an empty name. The default's own page is read-only (no Save, palette, moving or removing; the phases still expand) and offers **Duplicate**.
+- **Save / Duplicate / Share:**
+  - Save creates the rule set (then the address becomes `/rules/:id`) or replaces its whole definition. The form then takes the server's normalized definition.
+  - "Loading" a saved rule set as a starting point is **Duplicate**, from the list or the editor.
+  - Share uses the share dialog.
+  - Leaving with unsaved changes asks first, as in the deck builder.
 
 ### 4.4 Lobby (`/room/:code` before the game starts)
 - A big invite code with a copy button and a copyable link.
@@ -318,7 +343,7 @@ Built 2026-11-11, with the server side (backend_plan §10.2).
 | F0 | Vite scaffold, Tailwind, router, API client, generated types, auth pages, dashboard shell | M0, M1 | A user can register, log in and log out through nginx |
 | F1 | Catalog + `SchemaForm`, origin editor, card editor with cost suggestion, card library with groups and balance labels, art upload | M2 | Origins with field effects, and cards with abilities and art, can be created and edited and sorted into groups; the cost suggestion updates live |
 | F2 | Deck builder, share dialog (decks and card groups), import page | M3 | A deck or a card group can be shared by code and imported by another user |
-| F3 | Rules editor (settings, sortable pipeline, inline validation, share) | M4 | The default ruleset can be loaded, edited, validated and saved |
+| F3 | Rules editor (settings, sortable pipeline, inline validation, share) | M4 | The default ruleset can be loaded, edited, validated and saved (built 2026-11-13) |
 | F4 | Create room, join by code, lobby | M6 (lobby part) | Two browsers can meet in a lobby, pick decks and mark ready |
 | F5 | Game board: static render from a mocked state → live WS → drag-and-drop from `legal_actions` → event animations | M5, M6 | Two browsers can play a full game to a win |
 | F6 | Match history, replay viewer, responsive layout, polish | M7 | Past games can be replayed step by step; the board works on a tablet |
@@ -353,11 +378,11 @@ Tip: build the board in F5 against **mock `game_state` JSON fixtures** first (an
 | UC2 Create a deck | `/decks/:id` – Deck builder |
 | UC3 Create a room | `/rooms/new` |
 | UC4 Create turn-flow rules | `/rules/new` – Rules editor |
-| UC5 Load saved rules | `/rules` list, and "Load" in the rules editor |
+| UC5 Load saved rules | Duplicate (`/rules/new?from=<id>`), from the `/rules` list or the rules editor |
 | UC6 Invite second player via code | Lobby invite code and link |
 | UC7 Play game | `/room/:code` – Game board |
 | UC8 Share deck | Deck builder share dialog, `/share/:code` |
-| UC9 Share rules | Rules editor share, `/share/:code` |
+| UC9 Share rules | Share from the rules list or the rules editor, `/share/:code` |
 | UC10 Join a game via code | Dashboard "Join by code" dialog |
 | UC11 Select deck | Lobby deck selector |
 | UC12 Save rules | Rules editor Save |

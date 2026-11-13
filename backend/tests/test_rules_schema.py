@@ -8,12 +8,13 @@ from app.schemas.rules import RulesetDefinition
 from app.services.rules_service import validate_definition
 
 # The default ruleset as backend_plan §6 writes it, with every param filled in. The seed
-# migration inserts the same JSON; tests/test_rulesets.py checks the seeded row against it.
+# migration inserts the same JSON, less `mana.mode` (added later, read as its default);
+# tests/test_rulesets.py checks the seeded row, as the API returns it, against it.
 DEFAULT_DEFINITION: dict[str, Any] = {
     "schema_version": 1,
     "board": {"lanes": 3, "slots_per_section": 3, "section_hp": 20},
     "deck": {"size": 30, "max_copies": 2, "allow_neutral": True},
-    "mana": {"start": 1, "per_turn": 1, "max": 10},
+    "mana": {"start": 1, "per_turn": 1, "max": 10, "mode": "grow"},
     "hand": {"max_size": 10, "second_player_bonus_card": True},
     "setup": [{"key": "draw", "params": {"count": 3}}],
     "turn": [
@@ -98,6 +99,7 @@ def test_bounds_reject_values_outside(section: str, field: str, lowest: int, hig
     [
         ({"board": {"lanes": "three"}}, ["board", "lanes"]),
         ({"deck": {"allow_neutral": "maybe"}}, ["deck", "allow_neutral"]),
+        ({"mana": {"mode": "accumulate"}}, ["mana", "mode"]),
         ({"hand": None}, ["hand"]),
         ({"turn": "end_turn"}, ["turn"]),
         ({"turn": [{"params": {}}]}, ["turn", 0, "key"]),
@@ -106,6 +108,23 @@ def test_bounds_reject_values_outside(section: str, field: str, lowest: int, hig
 )
 def test_wrong_types_are_invalid_values(definition: dict[str, Any], path: list[str | int]) -> None:
     assert errors_of(definition) == [(path, "invalid_value")]
+
+
+@pytest.mark.parametrize("mode", ["grow", "restore"])
+def test_mana_modes(mode: str) -> None:
+    result, errors = validate_definition({"mana": {"mode": mode}})
+
+    assert errors == []
+    assert result is not None
+    assert result.mana.mode == mode
+
+
+def test_a_definition_saved_before_mana_modes_grows() -> None:
+    result, errors = validate_definition({"mana": {"start": 2, "per_turn": 1, "max": 10}})
+
+    assert errors == []
+    assert result is not None
+    assert result.mana.mode == "grow"
 
 
 def test_setup_may_be_empty() -> None:

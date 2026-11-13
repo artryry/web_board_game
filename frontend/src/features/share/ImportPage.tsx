@@ -5,6 +5,7 @@ import { ApiError } from "@/api/errors";
 import { useOrigins } from "@/api/hooks/useOrigins";
 import { useSharePreview } from "@/api/hooks/useShare";
 import { useCatalog } from "@/catalog/useCatalog";
+import { RulesetSummary } from "@/features/rules/RulesetSummary";
 import { ErrorAlert } from "@/ui/ErrorAlert";
 import { LoadingState } from "@/ui/LoadingState";
 
@@ -39,18 +40,16 @@ export function ImportPage() {
           {KIND_NAMES[shared.kind]} by {shared.author}
         </p>
       </div>
+      <ImportPanel
+        preview={shared}
+        onGone={() => {
+          setGone(true);
+        }}
+      />
       {shared.kind === "ruleset" ? (
-        <p>Rule sets can be imported once the rules editor is ready.</p>
+        <RulesetSummary definition={shared.definition} catalog={catalog.data} />
       ) : (
-        <>
-          <ImportPanel
-            preview={shared}
-            onGone={() => {
-              setGone(true);
-            }}
-          />
-          <SharedContent shared={shared} catalog={catalog.data} systemOrigins={origins.data} />
-        </>
+        <SharedContent shared={shared} catalog={catalog.data} systemOrigins={origins.data} />
       )}
     </section>
   );
@@ -60,7 +59,8 @@ function LinkGone() {
   return (
     <div className="flex flex-col gap-4">
       <ErrorAlert>
-        This link doesn't work any more. It may have been revoked, or the deck or group deleted.
+        This link doesn't work any more. It may have been revoked, or the deck, group or rule set
+        deleted.
       </ErrorAlert>
       <Link to="/" className="text-sm text-accent hover:underline">
         Go to the dashboard

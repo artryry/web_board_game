@@ -1,4 +1,4 @@
-import { NAME_MAX_LENGTH } from "@/api/bounds";
+import { copyName } from "@/api/bounds";
 import type { Origin, OriginBody } from "@/api/hooks/useOrigins";
 import type { Catalog, ModuleRef } from "@/catalog/useCatalog";
 
@@ -40,7 +40,7 @@ export function fromOrigin(origin: Origin): OriginFormValues {
 export function duplicateOf(origin: Origin): OriginFormValues {
   return {
     ...fromOrigin(origin),
-    name: `${origin.name} copy`.slice(0, NAME_MAX_LENGTH).trim(),
+    name: copyName(origin.name),
   };
 }
 

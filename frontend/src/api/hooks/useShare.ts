@@ -5,18 +5,23 @@ import { unwrap } from "@/api/errors";
 import type { components } from "@/api/schema";
 
 import { deckQueryKey } from "./useDecks";
+import { rulesetQueryKey } from "./useRulesets";
 
-/** What the share dialog can share. Rulesets get theirs with the rules editor (F3). */
-export type ShareKind = "deck" | "card_group";
+/** What the share dialog can share. */
+export type ShareKind = "deck" | "card_group" | "ruleset";
 
 export type DeckPreview = components["schemas"]["DeckPreview"];
 export type CardGroupPreview = components["schemas"]["CardGroupPreview"];
 export type RulesetPreview = components["schemas"]["RulesetPreview"];
 export type SharePreview = DeckPreview | CardGroupPreview | RulesetPreview;
 
-// The share code shows on decks and groups, so a change refreshes their lists. An open preview of
-// the code may now answer differently, so it goes too.
-const REFRESHED_BY_KIND = { deck: ["decks"], card_group: ["card-groups"] } as const;
+// The share code shows on decks, groups and rulesets, so a change refreshes their lists. An open
+// preview of the code may now answer differently, so it goes too.
+const REFRESHED_BY_KIND = {
+  deck: ["decks"],
+  card_group: ["card-groups"],
+  ruleset: ["rulesets"],
+} as const;
 
 function useRefreshShared(kind: ShareKind) {
   const queryClient = useQueryClient();
@@ -27,24 +32,33 @@ function useRefreshShared(kind: ShareKind) {
     ]);
 }
 
+const SHARE_CALLS = {
+  deck: {
+    create: (id: string) =>
+      api.POST("/api/decks/{deck_id}/share", { params: { path: { deck_id: id } } }),
+    revoke: (id: string) =>
+      api.DELETE("/api/decks/{deck_id}/share", { params: { path: { deck_id: id } } }),
+  },
+  card_group: {
+    create: (id: string) =>
+      api.POST("/api/card-groups/{group_id}/share", { params: { path: { group_id: id } } }),
+    revoke: (id: string) =>
+      api.DELETE("/api/card-groups/{group_id}/share", { params: { path: { group_id: id } } }),
+  },
+  ruleset: {
+    create: (id: string) =>
+      api.POST("/api/rulesets/{ruleset_id}/share", { params: { path: { ruleset_id: id } } }),
+    revoke: (id: string) =>
+      api.DELETE("/api/rulesets/{ruleset_id}/share", { params: { path: { ruleset_id: id } } }),
+  },
+};
+
 async function createShareCode(kind: ShareKind, id: string) {
-  const result =
-    kind === "deck"
-      ? await api.POST("/api/decks/{deck_id}/share", { params: { path: { deck_id: id } } })
-      : await api.POST("/api/card-groups/{group_id}/share", {
-          params: { path: { group_id: id } },
-        });
-  return unwrap(result).share_code;
+  return unwrap(await SHARE_CALLS[kind].create(id)).share_code;
 }
 
 async function revokeShareCode(kind: ShareKind, id: string) {
-  const result =
-    kind === "deck"
-      ? await api.DELETE("/api/decks/{deck_id}/share", { params: { path: { deck_id: id } } })
-      : await api.DELETE("/api/card-groups/{group_id}/share", {
-          params: { path: { group_id: id } },
-        });
-  unwrap(result);
+  unwrap(await SHARE_CALLS[kind].revoke(id));
 }
 
 /** Makes a share code, or returns the existing one. */
@@ -76,7 +90,8 @@ export function useSharePreview(code: string) {
 
 /**
  * Copies the shared deck, group or ruleset into the user's library. A deck brings its cards (in a
- * new group) and any custom origins, so every library list is refreshed.
+ * new group) and any custom origins, so every library list is refreshed. The copied deck or
+ * ruleset is cached, so the page the import lands on shows it at once.
  */
 export function useImportShare(code: string) {
   const queryClient = useQueryClient();
@@ -84,14 +99,20 @@ export function useImportShare(code: string) {
     mutationFn: async () =>
       unwrap(await api.POST("/api/share/{code}/import", { params: { path: { code } } })),
     onSuccess: (result) => {
+      let copiedId: string | null = null;
       if (result.kind === "deck") {
         queryClient.setQueryData(deckQueryKey(result.deck.id), result.deck);
+        copiedId = result.deck.id;
+      }
+      if (result.kind === "ruleset") {
+        queryClient.setQueryData(rulesetQueryKey(result.ruleset.id), result.ruleset);
+        copiedId = result.ruleset.id;
       }
       return Promise.all(
         ["decks", "cards", "card-groups", "origins", "rulesets"].map((key) =>
           queryClient.invalidateQueries({
             queryKey: [key],
-            predicate: (query) => result.kind !== "deck" || query.queryKey[2] !== result.deck.id,
+            predicate: (query) => copiedId === null || query.queryKey[2] !== copiedId,
           }),
         ),
       );

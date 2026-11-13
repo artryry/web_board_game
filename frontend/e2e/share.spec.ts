@@ -1,6 +1,6 @@
-import { expect, test, type Locator, type Page } from "@playwright/test";
+import { expect, test, type Locator } from "@playwright/test";
 
-import { createCard, registerNewUser } from "./helpers.ts";
+import { createCard, dragOnto, registerNewUser } from "./helpers.ts";
 
 // Sharing between two users, each in their own browser context (their own cookies and session),
 // against the real API. Like content.spec.ts it uploads no art; copied art is checked by hand.
@@ -10,21 +10,6 @@ const DECK_PATH = /\/decks\/[0-9a-f-]{36}$/;
 // Two users, two registrations and two library flows: more than the default 30 s against the
 // dev server, which serves the app unbundled.
 test.describe.configure({ timeout: 60_000 });
-
-/**
- * Drags with the mouse the way a user does: press, a small move to start the drag (the builder
- * waits for 5 px), a few steps to the target, release.
- */
-async function dragOnto(page: Page, source: Locator, target: Locator) {
-  const from = await source.boundingBox();
-  const to = await target.boundingBox();
-  if (from === null || to === null) throw new Error("Drag source or target isn't visible");
-  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(from.x + from.width / 2 + 10, from.y + from.height / 2 + 10);
-  await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 10 });
-  await page.mouse.up();
-}
 
 /** Creates the share link in the open share dialog and returns it. */
 async function createLink(dialog: Locator) {

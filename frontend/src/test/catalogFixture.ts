@@ -21,7 +21,8 @@ export const CATALOG: Catalog = {
     {
       key: "action_phase",
       name: "Action phase",
-      description: "Players play cards, move creatures and attack.",
+      description:
+        "Players play cards, move creatures and attack, until they end the phase or the time runs out.",
       interactive: true,
       params_schema: params({
         actor: choice("Actor", ["active", "both"], "active"),
@@ -36,6 +37,42 @@ export const CATALOG: Catalog = {
         },
         time_limit_s: bounded("Time limit (s)", 10, 600, 90),
       }),
+    },
+    {
+      key: "discard_to_hand_limit",
+      name: "Discard to hand limit",
+      description: "The active player discards down to the ruleset's maximum hand size.",
+      interactive: false,
+      params_schema: params(),
+    },
+    {
+      key: "draw",
+      name: "Draw",
+      description: "The active player draws cards. During setup, both players draw.",
+      interactive: false,
+      params_schema: params({ count: bounded("Count", 1, 5, 1) }),
+    },
+    {
+      key: "end_turn",
+      name: "End turn",
+      description: "Ends the turn and passes it to the other player. It must be the last phase.",
+      interactive: false,
+      params_schema: params(),
+    },
+    {
+      key: "gain_mana",
+      name: "Gain mana",
+      description:
+        "Gives the active player their mana for the turn, as the ruleset's mana mode says: their maximum grows by the per-turn amount, up to the cap, and their mana refills (grow), or they get the per-turn amount back, up to the cap (restore).",
+      interactive: false,
+      params_schema: params(),
+    },
+    {
+      key: "lane_combat",
+      name: "Lane combat",
+      description: "Combat resolves automatically, lane by lane.",
+      interactive: false,
+      params_schema: params(),
     },
   ],
   features: [

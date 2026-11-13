@@ -16,11 +16,12 @@ import {
 import { deckHandlers } from "./deckHandlers";
 import { apiError, apiUrl, authorized } from "./handlers";
 import { noContent, pageOf, readBody, type IdParams } from "./handlerUtils";
+import { rulesetHandlers } from "./rulesetHandlers";
 import { shareHandlers } from "./shareHandlers";
 
 // The content API over the in-memory store: enough of the backend's rules for the UI's flows
-// (the 409 lists, group names, art keys, a spell's hp), not a copy of its validation. Decks and
-// rulesets are in deckHandlers.ts, share codes and imports in shareHandlers.ts.
+// (the 409 lists, group names, art keys, a spell's hp), not a copy of its validation. Decks are in
+// deckHandlers.ts, rulesets in rulesetHandlers.ts, share codes and imports in shareHandlers.ts.
 
 export const R2_TEST_ORIGIN = "https://r2.test";
 const EXTENSIONS: Readonly<Record<string, string>> = {
@@ -356,6 +357,7 @@ export const contentHandlers = [
   ...cardHandlers,
   ...groupHandlers,
   ...deckHandlers,
+  ...rulesetHandlers,
   ...shareHandlers,
   ...uploadHandlers,
 ];

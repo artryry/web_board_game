@@ -54,6 +54,7 @@ M4 (rulesets, validation, share and import) is done (2026-11-12):
 - `schemas/rules.py` (`RulesetDefinition`, `RuleError`, `migrate()`) and `services/rules_service.py`, whose `validate_definition` reports every problem at once, each with a path into the definition (§6).
 - `rulesets` table with CRUD under `/api/rulesets`, `POST /api/rulesets/validate`, and the seeded read-only default ruleset (§4).
 - `share_codes.ruleset_id`: rulesets can be shared, previewed and imported like decks and groups (§8).
+- Added with F3 (2026-11-13): `mana.mode` (`grow` or `restore`, §6 and §7.3). Definitions stored before it read as `grow`; no data migration.
 
 ## 2. Stack
 
@@ -258,7 +259,7 @@ These are starting values; costs and bounds can be tuned in the module files.
 | Kind | Module | Params (bounds, default) | Cost / extra |
 |---|---|---|---|
 | phase | `draw` | `count` 1–5 =1 | |
-| phase | `gain_mana` (Hearthstone-style: max mana +per_turn up to the cap, then refill), `lane_combat` (automatic, lane by lane), `discard_to_hand_limit`, `end_turn` | — | |
+| phase | `gain_mana` (the turn's mana, by the ruleset's `mana.mode`, §7.3), `lane_combat` (automatic, lane by lane), `discard_to_hand_limit`, `end_turn` | — | |
 | phase | `action_phase` | `actor` active\|both =active; `allow` 1–3 of play/move/attack, unique, =all; `time_limit_s` 10–600 =90 | interactive |
 | feature | `taunt`, `charge` (attacks the turn it is played), `ranged` (can also hit a neighbouring lane), `lifesteal_section` (damage dealt heals your own section) | — | 2 |
 | feature | `armor`, `deathrattle_damage` | `amount` 1–5 =1 | 1 × amount |
@@ -288,7 +289,7 @@ Field effects have no cost formula. Their strength is limited by bounds on their
   "schema_version": 1,
   "board":  { "lanes": 3, "slots_per_section": 3, "section_hp": 20 },
   "deck":   { "size": 30, "max_copies": 2, "allow_neutral": true },
-  "mana":   { "start": 1, "per_turn": 1, "max": 10 },
+  "mana":   { "start": 1, "per_turn": 1, "max": 10, "mode": "grow" },
   "hand":   { "max_size": 10, "second_player_bonus_card": true },
   "setup":  [ { "key": "draw", "params": { "count": 3 } } ],
   "turn": [
@@ -311,7 +312,7 @@ Bounds (default in brackets):
 |---|---|
 | `board` | `lanes` 1–5 [3], `slots_per_section` 1–5 [3], `section_hp` 1–100 [20] |
 | `deck` | `size` 10–60 [30], the exact number of cards; `max_copies` 1–4 [2]; `allow_neutral` [true] (§4) |
-| `mana` | `start` 0–20 and at most `max` [1], `per_turn` 1–5 [1], `max` 1–20 [10] |
+| `mana` | `start` 0–20 and at most `max` [1], `per_turn` 1–5 [1], `max` 1–20 [10], `mode` `grow` or `restore` [`grow`] (§7.3) |
 | `hand` | `max_size` 1–15 [10], `second_player_bonus_card` [true] |
 | `setup` | 0–5 phases [draw 3] |
 | `turn` | 1–12 phases [as above] |
@@ -371,6 +372,10 @@ view_for(state, player) -> PlayerView                             # hides oppone
 ```
 
 **Runner loop:** walk the pipeline from `phase_pointer`. Automatic phases (`draw`, `gain_mana`, `lane_combat`, `end_turn`) run right away and emit events. When the runner reaches an interactive phase (`action_phase`), it stops and waits for actions. After `end_turn` it moves the active player forward and starts the `turn` list again.
+
+**Mana (`gain_mana`):** a player's first `gain_mana` gives them `mana.start` mana (and, in `grow`, a maximum of `start`). Each later one follows `mana.mode`:
+- `grow` (Hearthstone-style, the default): `max_mana` rises by `per_turn`, up to `max`, then `mana` refills to `max_mana`. With 1 / 1 / 10 a player has 1, 2, 3 … 10 mana on their turns.
+- `restore`: `max_mana` is `max`; `mana` rises by `per_turn`, up to `max`, and unspent mana carries over.
 
 ### 7.4 Actions
 | Action | Payload |

@@ -12,13 +12,16 @@ function definition(deck: Definition["deck"]): Definition {
     schema_version: 1,
     board: { lanes: 3, slots_per_section: 2, section_hp: 30 },
     deck,
-    mana: { start: 1, per_turn: 1, max: 10 },
+    mana: { start: 1, per_turn: 1, max: 10, mode: "grow" },
     hand: { max_size: 10, second_player_bonus_card: true },
     setup: [{ key: "draw", params: { count: 3 } }],
     turn: [
       { key: "gain_mana", params: {} },
       { key: "draw", params: { count: 1 } },
-      { key: "action_phase", params: { actor: "active", allow: ["play", "move", "attack"] } },
+      {
+        key: "action_phase",
+        params: { actor: "active", allow: ["play", "move", "attack"], time_limit_s: 90 },
+      },
       { key: "end_turn", params: {} },
     ],
   };

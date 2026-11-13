@@ -25,7 +25,7 @@ interface ShareDialogProps {
   unsavedNote?: boolean;
 }
 
-/** Shares a deck or a card group by code and link, or revokes the code. */
+/** Shares a deck, a card group or a rule set by code and link, or revokes the code. */
 export function ShareDialog({ target, onClose, unsavedNote = false }: ShareDialogProps) {
   return (
     <Modal open={target !== null} title={`Share ${target?.name ?? ""}`} onClose={onClose}>

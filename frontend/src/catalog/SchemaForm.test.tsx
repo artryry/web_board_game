@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { CATALOG } from "@/test/catalogFixture";
 import { renderWithForm, submitted } from "@/test/renderWithForm";
 
+import { OutsideFieldErrors } from "./outsideFieldErrors";
 import { SchemaForm } from "./SchemaForm";
 import { defaultParams } from "./schemaFields";
 import { findModule } from "./useCatalog";
@@ -90,6 +91,31 @@ describe("SchemaForm", () => {
   it("renders nothing for a schema without properties", () => {
     const { container } = renderSchema("free_move");
     expect(container.querySelector("form")?.children).toHaveLength(1);
+  });
+
+  it("shows outside errors at their fields, after the form's own", async () => {
+    const schema = schemaOf("test_every_type");
+    const outside = new Map([
+      ["params.weight", "Input should be less than or equal to 2"],
+      ["params.tags", "Value error, tags must not repeat"],
+    ]);
+    const { user } = renderWithForm(
+      <OutsideFieldErrors value={outside}>
+        <SchemaForm schema={schema} name="params" />
+      </OutsideFieldErrors>,
+      { params: defaultParams(schema) },
+    );
+
+    expect(screen.getByLabelText("Weight")).toHaveAccessibleDescription(
+      "Input should be less than or equal to 2",
+    );
+    expect(screen.getByRole("group", { name: "Tags" })).toHaveTextContent(
+      "Value error, tags must not repeat",
+    );
+
+    await user.clear(screen.getByLabelText("Weight"));
+    await user.tab();
+    expect(screen.getByLabelText("Weight")).toHaveAccessibleDescription("Enter Weight.");
   });
 
   it("shows an error for a property it can't render", () => {

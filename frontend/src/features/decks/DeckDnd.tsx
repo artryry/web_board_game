@@ -13,6 +13,7 @@ import type { Card } from "@/api/hooks/useCards";
 import type { Origin } from "@/api/hooks/useOrigins";
 import type { Catalog } from "@/catalog/useCatalog";
 import { CardView } from "@/features/cards/CardView";
+import { DRAG_DISTANCE_PX } from "@/ui/dragDistance";
 
 import { DECK_DROP_ID } from "./DeckPanel";
 
@@ -24,9 +25,6 @@ interface DeckDndProps {
   onDropOnDeck: (card: Card) => void;
   children: ReactNode;
 }
-
-// A drag starts after the pointer moves this far, so a click on a library card still adds it.
-const DRAG_DISTANCE_PX = 5;
 
 /**
  * Dragging library cards onto the deck. Only the pointer drags: keyboard users add a card with

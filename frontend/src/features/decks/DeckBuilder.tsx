@@ -14,6 +14,8 @@ import type { Catalog } from "@/catalog/useCatalog";
 import { ShareDialog } from "@/features/share/ShareDialog";
 import { ErrorAlert } from "@/ui/ErrorAlert";
 import { InUseList } from "@/ui/InUseList";
+import { LeaveGuardDialog } from "@/ui/LeaveGuardDialog";
+import { useLeaveGuard } from "@/ui/useLeaveGuard";
 
 import { DeckDnd } from "./DeckDnd";
 import {
@@ -30,10 +32,8 @@ import { DeckLibraryPanel } from "./DeckLibraryPanel";
 import { DeckPanel } from "./DeckPanel";
 import { DeckValidityPanel } from "./DeckValidityPanel";
 import { DeleteDeckDialog } from "./DeleteDeckDialog";
-import { LeaveGuardDialog } from "./LeaveGuardDialog";
 import { ManaCurveChart } from "./ManaCurveChart";
 import { OriginChangeDialog } from "./OriginChangeDialog";
-import { useLeaveGuard } from "./useLeaveGuard";
 import { useLibraryCards } from "./useLibraryCards";
 
 interface DeckBuilderProps {
@@ -217,7 +217,7 @@ export function DeckBuilder({ deck, catalog, origins, rulesets, neutralId }: Dec
           />
         </>
       )}
-      <LeaveGuardDialog blocker={guard.blocker} />
+      <LeaveGuardDialog blocker={guard.blocker} message="Your changes to this deck will be lost." />
     </div>
   );
 }

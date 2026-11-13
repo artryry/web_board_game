@@ -11,6 +11,7 @@ import {
   SYSTEM_ORIGIN_IDS,
 } from "@/test/contentStore";
 import { renderApp, saveSession } from "@/test/renderApp";
+import { addRuleset } from "@/test/rulesetHandlers";
 
 const { forest, neutral, volcano } = SYSTEM_ORIGIN_IDS;
 const CODE = "ABCDEFGHJK";
@@ -115,17 +116,45 @@ describe("ImportPage", () => {
     expect(screen.getByText("This is yours: importing makes a copy.")).toBeInTheDocument();
   });
 
-  it("previews a rule set without an import button", async () => {
-    const strict = contentStore.rulesets.find((ruleset) => ruleset.id === STRICT_RULESET_ID);
-    if (strict !== undefined) strict.share_code = CODE;
+  it("previews someone's rule set: its settings and phases, read-only", async () => {
+    const shared = addRuleset("Fast lanes", { shareCode: CODE });
+    shared.definition.board.lanes = 5;
+    contentStore.authors.set(shared.id, "bob");
     await openImport();
 
-    expect(screen.getByRole("heading", { name: "Strict" })).toBeInTheDocument();
-    expect(screen.getByText("Rule set by alice")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Fast lanes" })).toBeInTheDocument();
+    expect(screen.getByText("Rule set by bob")).toBeInTheDocument();
+    expect(screen.getByLabelText("Lanes")).toHaveValue(5);
+    expect(screen.getByLabelText("Lanes")).toBeDisabled();
+    expect(screen.getByRole("img", { name: "Board: 5 lanes, 2 slots per section" })).toBeVisible();
     expect(
-      screen.getByText("Rule sets can be imported once the rules editor is ready."),
+      within(screen.getByRole("list", { name: "Turn order" }))
+        .getAllByRole("listitem")
+        .map((item) => item.textContent.replace("→", "")),
+    ).toEqual(["Gain mana", "Draw", "Action phase", "End turn"]);
+    expect(screen.queryByRole("button", { name: /^Remove|^Add/ })).not.toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Copies the rule set into your library. Your copy won't change when the author edits theirs.",
+      ),
     ).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Import to my library" })).not.toBeInTheDocument();
+    expect(screen.queryByText("This is yours: importing makes a copy.")).not.toBeInTheDocument();
+  });
+
+  it("imports a rule set and opens the copy in the editor", async () => {
+    const strict = contentStore.rulesets.find((ruleset) => ruleset.id === STRICT_RULESET_ID);
+    if (strict !== undefined) strict.share_code = CODE;
+    const { user, router } = await openImport();
+    expect(screen.getByText("This is yours: importing makes a copy.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Import to my library" }));
+
+    expect(await screen.findByRole("heading", { name: "Edit Strict" })).toBeInTheDocument();
+    const copy = contentStore.rulesets.at(-1);
+    expect(copy?.id).not.toBe(STRICT_RULESET_ID);
+    expect(copy?.share_code).toBeNull();
+    expect(router.state.location.pathname).toBe(`/rules/${copy?.id ?? ""}`);
+    expect(screen.getByLabelText("Deck size")).toHaveValue(20);
   });
 
   it("says when a link doesn't work", async () => {
@@ -133,7 +162,7 @@ describe("ImportPage", () => {
     renderApp("/share/NOPE234567");
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "This link doesn't work any more. It may have been revoked, or the deck or group deleted.",
+      "This link doesn't work any more. It may have been revoked, or the deck, group or rule set deleted.",
     );
     expect(screen.getByRole("link", { name: "Go to the dashboard" })).toHaveAttribute("href", "/");
   });

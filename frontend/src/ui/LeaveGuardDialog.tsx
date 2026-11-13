@@ -2,8 +2,14 @@ import type { Blocker } from "react-router";
 
 import { ConfirmDialog } from "@/ui/ConfirmDialog";
 
+interface LeaveGuardDialogProps {
+  blocker: Blocker;
+  /** What would be lost, for example "Your changes to this deck will be lost." */
+  message: string;
+}
+
 /** The question a blocked navigation asks: leave and lose the changes, or stay. */
-export function LeaveGuardDialog({ blocker }: { blocker: Blocker }) {
+export function LeaveGuardDialog({ blocker, message }: LeaveGuardDialogProps) {
   return (
     <ConfirmDialog
       open={blocker.state === "blocked"}
@@ -16,7 +22,7 @@ export function LeaveGuardDialog({ blocker }: { blocker: Blocker }) {
         blocker.reset?.();
       }}
     >
-      <p>Your changes to this deck will be lost.</p>
+      <p>{message}</p>
     </ConfirmDialog>
   );
 }

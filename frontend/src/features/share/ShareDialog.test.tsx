@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { addDeck, contentStore, SYSTEM_ORIGIN_IDS } from "@/test/contentStore";
 import { logged } from "@/test/logCapture";
 import { renderApp, saveSession } from "@/test/renderApp";
+import { addRuleset } from "@/test/rulesetHandlers";
 
 const CODE = "ABCDEFGHJK";
 
@@ -83,5 +84,20 @@ describe("ShareDialog", () => {
     await waitFor(() => {
       expect(screen.queryByText("Shared")).not.toBeInTheDocument();
     });
+  });
+
+  it("revokes a rule set's code too", async () => {
+    const ruleset = addRuleset("aggro", { shareCode: CODE });
+    saveSession();
+    const { user } = renderApp("/rules");
+    await user.click(await screen.findByRole("button", { name: "Share aggro" }));
+    const dialog = screen.getByRole("dialog", { name: "Share aggro" });
+    expect(within(dialog).getByText(CODE)).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: "Revoke" }));
+    await user.click(within(dialog).getByRole("button", { name: "Revoke link" }));
+
+    expect(await within(dialog).findByRole("button", { name: "Create link" })).toBeInTheDocument();
+    expect(ruleset.share_code).toBeNull();
   });
 });

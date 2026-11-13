@@ -1,333 +1,285 @@
-# Current feature: F2 — Deck builder, share dialog and import page
+# Current feature: F3 — Rules editor
 
-**Status:** built 2026-11-12 on the `f2-decks` branch, not committed yet. The checks by hand with art are still to do (see "Done when").
-**Plan reference:** [frontend_plan.md §3, §4.2, §4.2a and §7](frontend_plan.md), [backend_plan.md §4, §6 and §8](backend_plan.md) (decks, rulesets, sharing, the error codes), [coding-standards.md](coding-standards.md)
-**Depends on:** M3 (decks, share and import), F1 and M4 (rulesets and the seeded default ruleset). All three are done.
-**Unblocks:** F4, whose lobby deck selector reuses the deck list and the validity check. F2 also covers use cases UC2 (create a deck) and UC8 (share a deck).
+**Status:** built 2026-11-13 on `f3-rules-editor`, not committed. Every check passes, and so does the new e2e spec (see the session file for the dev nginx stalls). The look by hand is partly done (see Done when).
+**Plan reference:** [frontend_plan.md §3, §4.2a, §4.3, §7 and §10](frontend_plan.md), [backend_plan.md §5, §6 and §8](backend_plan.md) (the phase modules, the rules JSON and its errors, the ruleset API), [coding-standards.md](coding-standards.md)
+**Depends on:** M4 (rulesets, `/validate`, sharing) and F2 (the share dialog, the import page, dnd-kit core, the leave guard). Both are done.
+**Unblocks:** F4, whose Create room page picks a ruleset. F3 also covers use cases UC4 (create turn-flow rules), UC5 (load saved rules), UC9 (share rules) and UC12 (save rules).
 
 Earlier features still have follow-ups:
-- **M4:** `c8cf578` is on `master` locally (and on `m4-rulesets`), but not pushed yet. Its two migrations run on deploy ([sessions/session_2026-11-12_m4-rulesets.md](sessions/session_2026-11-12_m4-rulesets.md)).
+- **F2:** committed on `f2-decks` (`716a793`), not merged or pushed. Still to check by hand: the copied art on imported cards, and a look in two real browsers ([sessions/session_2026-11-12_f2-decks.md](sessions/session_2026-11-12_f2-decks.md)).
+- **M4:** `c8cf578` is on `master` locally, not pushed yet. Its two migrations run on deploy ([sessions/session_2026-11-12_m4-rulesets.md](sessions/session_2026-11-12_m4-rulesets.md)).
+- **Dev nginx:** it stalls under parallel load (an unreachable IPv6 `host.docker.internal`, and slow proxying to the host), so `npm run e2e` passes only with `--workers=1`. On 2026-11-13 even `--workers=1` hit stalled page loads (the auth and F2 share specs too); with `--retries=2` everything passed. Not fixed; see the F2 and F3 session files.
 - **Art cleanup:** deploy it, then check Render ([sessions/session_2026-11-11_art-cleanup.md](sessions/session_2026-11-11_art-cleanup.md)).
-- **Logging:** the e2e run and the checks by hand ([sessions/session_2026-11-11_logging.md](sessions/session_2026-11-11_logging.md)).
+- **Logging:** the checks by hand ([sessions/session_2026-11-11_logging.md](sessions/session_2026-11-11_logging.md)).
 
 ## Goal
 A logged-in user can:
-- build decks: pick an origin, add cards by clicking or dragging, set copy counts, and see the mana curve and whether the deck fits a ruleset
-- share a deck or a card group with a code and a link, and revoke it
-- open someone's link, preview what they shared, and import a copy into their own library
+- see the default rule set and their own, and start a new one from the default or from any of them (Duplicate)
+- edit a rule set: the board, deck, mana and hand settings, and the Setup and Turn phase pipelines (add, set up, reorder, remove)
+- see every problem inline while editing, as the server reports it, and save
+- share a rule set by code, and import someone's shared rule set
 
-Done when (frontend_plan §7): **a deck or a card group can be shared by code and imported by another user.**
+Done when (frontend_plan §7): **the default ruleset can be loaded, edited, validated and saved.**
 
 ## How it works
 
 ### Pages and routes
-| Route | Page | New in F2 |
+| Route | Page | New in F3 |
 |---|---|---|
-| `/decks` | `DeckListPage` | the deck list, plus a box to open a share code |
-| `/decks/new` | `DeckBuilderPage` | a new deck; nothing is created until Save |
-| `/decks/:id` | `DeckBuilderPage` | an existing deck |
-| `/share/:code` | `ImportPage` | the preview and **Import to my library** |
+| `/rules` | `RulesListPage` | the default rule set, then the user's own |
+| `/rules/new` | `RulesEditorPage` | a new rule set, from the default; nothing is created until Save |
+| `/rules/new?from=<id>` | `RulesEditorPage` | a copy of that rule set, named "<name> copy" (cut to 40 characters) |
+| `/rules/:id` | `RulesEditorPage` | the user's own rule set; the default one is read-only |
 
-- The main nav gets **Decks**, after Cards: Dashboard, Cards, Decks, Origins.
-- A logged-out visitor who opens a share link logs in first, then comes back to it. `ProtectedRoute` already remembers the page.
+- The main nav gets **Rules**, after Decks: Dashboard, Cards, Decks, Rules, Origins.
+- In the UI the thing is a "rule set" (the deck builder and the import page already say so); in code it stays `ruleset`.
 
-### Deck list (`/decks`)
-- Newest first, as the server orders them, with **Load more**, like the card library.
-- **Each row shows:**
-  - the name, linked to the builder
-  - the origin (`OriginBadge`)
-  - the card count against the default ruleset's size, for example "24 / 30 cards"
-  - a "Shared" mark while it has a share code
-- **Row actions:**
-  - **Share** opens the share dialog
-  - **Delete** asks first. When the deck is shared, the dialog says its link will stop working.
-- The list shows only the size check. The summaries have no card lists, and the full check would cost one request per deck, so it lives in the builder.
-- **New deck** goes to `/decks/new`.
-- **"Have a share code?"** is a small form that opens `/share/<code>`. Case and spaces don't matter, and the server decides whether the code exists.
-- **Empty state:** "No decks yet", with New deck and the code form.
+### Rules list (`/rules`)
+- **Built like the origins page:** a "Default" section, then "My rule sets". The server already lists the default first, then the user's own by name (`useRulesets`, in full).
+- **Each rule set shows:**
+  - its name, linked to the editor
+  - a one-line summary: lanes, deck size, and the number of turn phases (for example "3 lanes · 30-card decks · 4 turn phases")
+  - a "Shared" mark while it has a share code (own rule sets only)
+- **Actions:**
+  - the default: **View** and **Duplicate**
+  - own rule sets: **Edit**, **Duplicate**, **Share** and **Delete**. Delete asks first, and says when a share link will stop working.
+- **New rule set** goes to `/rules/new`.
+- **Empty state** for own rule sets: "No rule sets yet. Duplicate the default, or start a new one."
 
-### Deck builder (`/decks/new`, `/decks/:id`)
+### Rules editor (`/rules/new`, `/rules/:id`)
 ```
-┌ Name [____________]  Origin [Forest ▾]           [Share] [Delete] [Save] ┐
-├──────────── Library (Forest + Neutral) ───────┬──────── Deck · 24 cards ──┤
-│ [Kind: All ▾] [Search name____]               │ 1  Sprout        − 2 +    │
-│ ┌────┐ ┌────┐ ┌────┐ ┌────┐                   │ 2  Wolf          − 2 +    │
-│ │card│ │card│ │card│ │card│  click or drag →  │ 3  Bear          − 1 +    │
-│ │2 in│ │    │ │    │ │4 in│  (4 in = full)    │ …                         │
-│ └────┘ └────┘ └────┘ └────┘                   │ Mana curve  ▁▃▆█▅▂▁▁      │
-│                                               │ Rules: [Default ▾]        │
-│                                               │ ✓ 30 / 30 cards  ✗ copies │
-└───────────────────────────────────────────────┴───────────────────────────┘
+┌ ← Rule sets ──────────────────────────────────────────────────────────────┐
+│ Name [______________]                    [Duplicate] [Share] [Delete] [Save] │
+│ ✓ No problems  (or: ✗ 2 problems: Turn needs an End turn · Lanes ≤ 5)     │
+├─────────── Settings ─────────────────┬─────────── Phases ──────────────────┤
+│ Board  Lanes [3] Slots [3] HP [20]   │ Setup · runs once before turn 1     │
+│   ┌──┬──┬──┐  thumbnail: lanes × 2   │  ⠿ Draw · 3 cards        ↑ ↓ ▾ ✕   │
+│   ├──┼──┼──┤  sections, with slots   │ Turn                                │
+│   └──┴──┴──┘                         │  ⠿ Gain mana              ↑ ↓ ▾ ✕   │
+│ Deck   Size [30] Copies [2] ☑ Neutral│  ⠿ Draw · 1 card          ↑ ↓ ▾ ✕   │
+│ Mana   Start [1] Per turn [1] Max [10]│  ⠿ Action phase ⏱ 90 s   ↑ ↓ ▾ ✕   │
+│ Hand   Max [10] ☑ Bonus card, 2nd    │  ⠿ End turn               ↑ ↓ ▾ ✕   │
+│                                      │ Phases: Draw [+Setup] [+Turn] …     │
+│                                      │ Turn order: Gain mana → Draw → …    │
+└──────────────────────────────────────┴─────────────────────────────────────┘
 ```
 - **Header:**
-  - name (required, at most 40 characters, `NAME_MAX_LENGTH`)
-  - origin, from the same select the card editor uses (`OriginOptions`: templates, then my origins)
+  - name (required, at most 40 characters, `NAME_MAX_LENGTH`; names need not be unique)
   - **Save**
-  - **Share** and **Delete**, for a saved deck only
-- **A new deck** starts with no origin. Until one is picked, the library says "Pick an origin to see its cards".
-- **Library (left):**
-  - the cards of the deck's origin plus neutral cards: two `GET /api/cards?origin_id=…` lists, loaded in full with `fetchAllPages`, or one list when the origin is neutral
-  - filters on the client: kind, and a name search
-  - each card shows how many copies the deck holds ("2 in deck")
-  - **clicking a card adds one copy.** It is disabled at 4 copies, or when the deck has 60 cards (the server's hard bounds).
-- **Drag-and-drop:**
-  - Dragging a library card onto the deck panel adds one copy.
-  - The deck panel lights up while a card is dragged over it.
-  - A small pointer move is needed before a drag starts, so a click still adds.
-  - Keyboard users add with Enter or Space on the card button, so they don't need the drag.
-- **Deck (right):**
-  - rows by mana cost, then name (the server's order)
-  - each row shows the cost, the name and the origin icon, plus **−** and **+** buttons ("Remove one Wolf", "Add one Wolf"). **+** stops at 4, and **−** at 1 removes the row.
-  - the total: "24 cards"
-- **Changing the origin:**
-  - The cards that won't fit are those neither of the new origin nor neutral. A neutral deck holds only neutral cards.
-  - If there are any, a confirm dialog lists them ("These 6 cards will be removed"). Confirming changes the origin and drops them; Cancel keeps the old origin.
-  - The next Save sends the new `origin_id` and the trimmed `cards` together, since the server rejects an origin change while old cards remain (`card_origin_mismatch`).
+  - **Duplicate**, **Share** and **Delete** for a saved rule set of the user's own
+  - the validation status (see Validation)
+- **Starting values:**
+  - `/rules/new`: the default rule set's definition, with an empty name
+  - `/rules/new?from=<id>`: that rule set's definition, named "<name> copy" (like the origin editor's `?from=`)
+  - `/rules/:id`: the saved rule set
+- **Settings (a plain form):**
+  - **Board:** lanes, slots per section, section HP. A small **board thumbnail** draws `lanes` columns × 2 rows of sections (one row per player, as on the board in §5.1), each with its slots, and updates as the values change.
+  - **Deck:** size (exact), maximum copies, and a checkbox for neutral cards in a deck of another origin.
+  - **Mana:** start, per turn, maximum.
+  - **Hand:** maximum hand size, and a checkbox for the second player's bonus card. A hint says the starting hand is whatever the Setup phases draw.
+  - Whole numbers only. **The bounds aren't copied to the client** (proposed): `/validate` reports them at the field ("Input should be less than or equal to 5").
+- **Phase pipelines:** two lists, **Setup** ("runs once, before the first turn") and **Turn**.
+  - **Each phase (`PhaseItem`):**
+    - a drag handle, the module's name, and a short summary of its params (`describeParams`, for example "Draw · 1 card")
+    - an interactive phase shows its time limit on the collapsed item ("⏱ 90 s"), from its `time_limit_s` param
+    - **▾** expands it to edit its params with `SchemaForm` (name `turn.<i>.params`); a module with no params has nothing to expand
+    - **Move up** / **Move down** buttons (the keyboard way to reorder), and **Remove**
+    - a module the catalog doesn't know any more shows as "Unknown phase “<key>”" and can only be removed (like `ModuleListField`)
+  - **Reorder by drag** within one pipeline (`@dnd-kit/sortable`, pointer only, a small move to start). Phases don't move between Setup and Turn (confirmed 2026-11-12).
+  - **Adding (`ModulePalette`):** every catalog phase with its name, description and an "interactive" badge, and two buttons, **Add to Setup** and **Add to Turn**. It adds the phase with its default params (`defaultParams`) at the end; in Turn, before a final `end_turn` (confirmed 2026-11-12). The client doesn't hide modules that don't belong in Setup: the server's error says why.
+  - **Turn order:** a read-only strip under the pipelines that lists the turn's phases in order, as the in-game phase tracker (F5) will.
+- **Validation:**
+  - After each change, debounced (500 ms), `POST /api/rulesets/validate {definition}` with the form's current definition. A newer change cancels the older request.
+  - The header shows "Checking…", "No problems", or "N problems" with the list of messages.
+  - **Each error goes where its `path` points:**
+    - a setting (`["board", "lanes"]`) → under that field
+    - a phase param (`["turn", 2, "params", "time_limit_s"]`) → under that field in the phase's `SchemaForm`; the collapsed phase shows an error mark
+    - a phase or its key (`["turn", 2]`, `["turn", 2, "key"]`) → on the phase item
+    - a pipeline rule (`["turn"]`, `["setup"]`) → under the pipeline's heading
+    - anything else (`["schema_version"]`) → only in the header list
+  - The messages are the server's (`RuleError.message`). The client checks nothing about the rules itself.
 - **Save:**
-  - **a new deck:** `POST /api/decks {name, origin_id, cards}`, then the address becomes `/decks/:id` (replace, with no unsaved-changes prompt)
-  - **an existing deck:** `PATCH /api/decks/{id} {name, origin_id, cards}`. `cards` is always the whole list.
+  - **a new rule set:** `POST /api/rulesets {name, definition}`, then the address becomes `/rules/:id` (replace, with no unsaved-changes prompt)
+  - **an existing one:** `PATCH /api/rulesets/{id} {name, definition}`. The definition is always the whole one.
+  - Save is never disabled by the validation (proposed): the server decides.
   - **server errors:**
-    - `card_origin_mismatch`: lists the cards
-    - `deck_too_large`
-    - `invalid_deck_cards`: a card was deleted elsewhere. The message asks the user to reload.
-    - `invalid_origin`
-    - `deck_not_found`: the deck was deleted elsewhere; the page shows not-found
+    - `invalid_ruleset` (422, with `errors`): shown exactly like the `/validate` errors
     - a name error goes on the name field (`showServerError`)
-- **Unsaved changes:** the deck is dirty while its name, origin or cards differ from the last save.
-  - Leaving the page then asks "Leave without saving?" (react-router's `useBlocker`, with `ConfirmDialog`).
-  - Closing or reloading the tab gets the browser's own prompt (`beforeunload`).
-- **Delete** asks first, goes to `/decks`, and says the share link stops working if there is one.
-- **Mana curve** (`ManaCurveChart`):
-  - one bar per cost from 0 to 6, plus "7+", counting every copy
-  - each bar has its count, and screen readers get the same numbers as a list
-  - built from the authors' own costs, as information only
-- **Validity panel** (`DeckValidityPanel`, information only):
-  - a ruleset select: the default ruleset, preselected, then the user's own rulesets
-  - **checks the deck against that ruleset's `deck` rules:**
-    - **size:** exactly `deck.size` cards, for example "24 / 30 cards"
-    - **copies:** the cards over `max_copies`, by name
-    - **neutral:** when `allow_neutral` is false, the neutral cards in a deck of another origin. A neutral deck's cards are its own origin, so a neutral deck still passes.
-  - a pure function, `deckProblems(entries, rules)`, with unit tests. F4's lobby reuses it.
-  - it says that the server checks the deck when it's picked for a room (M6). Saving is never blocked by it.
+    - `ruleset_not_found`: deleted elsewhere; the page shows not-found
+  - After a save, the form takes the server's normalized definition (defaults filled in).
+- **The default rule set** (`/rules/:id` of the system one) is read-only, like an origin template: every field disabled, no palette, no reordering or removing, the phases still expandable to read their params. It says "This is the default rule set. Duplicate it to make your own." with **Duplicate**.
+- **Unsaved changes:** the rule set is dirty while its name or definition differs from the last save. Leaving asks first (`useBlocker`), and closing the tab gets the browser's prompt, as in the deck builder.
+- **Delete** asks first, goes to `/rules`, and says when the share link stops working.
 
-### Share dialog (decks and card groups)
-- **`features/share/ShareDialog.tsx`**, one dialog for both kinds. It is opened from:
-  - the deck list
-  - the builder (a saved deck)
-  - each group in the card library's group panel. The panel also marks shared groups.
-- **Not shared yet:**
-  - It explains: "Anyone with the link can preview it and import a copy. Your later edits show up in new imports."
-  - **Create link** sends `POST /api/decks/{id}/share` (or `/api/card-groups/{id}/share`).
-- **Shared:**
-  - the code, large and monospaced, plus the full link (`<origin>/share/<code>`)
-  - **Copy link** (`navigator.clipboard`, showing "Copied"). If the clipboard fails, the link text is selected, so the user can copy it by hand, and `share.copy_failed` is logged (warn).
-  - **Revoke** asks first: "The link stops working. Sharing again makes a new code." Then it sends `DELETE .../share`.
-- After create and revoke, the deck and group queries are refreshed, so `share_code` shows everywhere.
-- **In the builder with unsaved changes,** the dialog notes that the saved version is what gets shared.
+### Sharing and import
+- **`ShareDialog`** gets a third kind, `ruleset` (`POST`/`DELETE /api/rulesets/{id}/share`). It opens from the rules list and the editor, for the user's own saved rule sets. The default can't be shared (the server answers 403), so it has no Share button.
+- **Import page (`/share/:code`), `kind: "ruleset"`:**
+  - the preview shows a read-only summary: the settings and both pipelines (`RulesetSummary`, the same pieces as the editor's read-only mode)
+  - **Import to my library** is now offered: "Copies the rule set into your library. Your copy won't change when the author edits theirs." It goes to `/rules/:id`.
+  - This removes F2's "Rule sets can be imported once the rules editor is ready."
 
-### Import page (`/share/:code`)
-- **`GET /api/share/{code}`** gives the preview, depending on `kind`:
-  - **`deck`:** the name, "Deck by <author>", the origin (`OriginBadge` and `OriginPreview`), the card count, the cards with their counts (`CardView`, with ×n), and the mana curve
-  - **`card_group`:** the name, "Card group by <author>", the origins its cards use, and the cards
-  - **`ruleset`:** the name and the author, plus "Rule sets can be imported once the rules editor is ready (F3)". There is no import button yet. The preview also carries the full `definition`, which F2 doesn't show.
-- **Before importing,** it says what the import does: "Copies the cards (and N custom origins) into your library. Your copy won't change when the author edits theirs."
-  - When the author is the current user, it adds: "This is yours: importing makes a copy."
-- **Import to my library** sends `POST /api/share/{code}/import`.
-  - It refreshes the decks, cards, card groups, origins and counts.
-  - Then it goes to `/decks/:id` for a deck, or `/cards?group=<id>` for a group (`libraryParams` already reads `group`).
-- **`share_not_found`,** on the preview or the import, shows "This link doesn't work any more. It may have been revoked, or the deck or group deleted", with a link to the dashboard.
-
-### Changes to F1 pages
-- **Delete dialogs:** in `DeleteCardDialog` and `DeleteOriginDialog`, deck names in the 409 lists become links to `/decks/:id` (`InUseList`'s `linkTo`). So does the card editor's `card_in_use` on an origin change.
-- **`CardGroupPanel`:** a Share action per group, and the shared mark.
-- **Stale comments** go, in `MoveToGroupDialog` ("Drag-and-drop arrives in F2") and `test/handlers.ts` ("Decks arrive in F2"). Moving cards between groups keeps the dialog.
+### Changes to F2 code
+- **`useLeaveGuard` and `LeaveGuardDialog`** move from `features/decks/` to `ui/`, since both editors use them. The dialog's text becomes a prop ("Your changes to this deck will be lost." / "… to this rule set …").
+- **`ShareKind`** in `useShare.ts` adds `"ruleset"`, and its refresh covers `["rulesets"]`.
+- **The import page** handles the ruleset import (above), and `useImportShare` caches the imported ruleset like a deck.
+- **The deck builder's validity panel** lists new rule sets automatically, since every ruleset change refreshes `["rulesets"]`.
 
 ### API hooks
-- **`api/hooks/useDecks.ts`:**
-  - the list (infinite, newest first) and one deck
-  - create, update and delete, which also refresh the counts
-- **`api/hooks/useShare.ts`:**
-  - share and revoke, for a deck or a group
-  - the preview (`["share", code]`, never retried on 404) and the import
-- **`api/hooks/useRulesets.ts`:** `GET /api/rulesets`, the default ruleset first, then the user's own (see "From M4").
-- **Types** come from `schema.d.ts`; run `npm run gen:api` first (see Setup).
+- **`api/hooks/useRulesets.ts`** (it has `useRulesets` and `findDefaultRuleset`) adds:
+  - `useRuleset(id)` (`["rulesets", "detail", id]`)
+  - `useCreateRuleset`, `useUpdateRuleset` and `useDeleteRuleset`, which refresh `["rulesets"]`
+  - `useRulesetValidation(definition)`: the debounced `/validate` call (a query keyed by the definition, so it cancels and caches)
+- **Types** come from `schema.d.ts` (`RulesetOut`, `RulesetDefinition`, `RuleError`, `RulesetValidation`, `PhaseOut`); no regeneration is expected, since M4's types arrived in F2.
 
 ### Fake API for tests (MSW)
-- **`test/contentStore.ts`:**
-  - decks get `cards: {cardId, count}[]` and a `shareCode`
-  - groups get a `shareCode`
-  - a rulesets fixture with the default ruleset
-- **`test/contentHandlers.ts`** handles:
-  - `/api/decks` (list, get, create, PATCH, delete), with the hard bounds and `card_origin_mismatch`
-  - `.../share` (create and revoke), for decks and groups
-  - `/api/share/{code}` and its import (a simplified fork)
-  - `/api/rulesets`
+- **`test/deckHandlers.ts`** (or a new `test/rulesetHandlers.ts`): `/api/rulesets` create, get, PATCH (403 on the default) and delete, and `POST /api/rulesets/validate` with a few of the server's rules, enough for the UI's flows: an out-of-bounds `board.lanes`, `end_turn_missing`, `end_turn_not_last`, `turn_needs_interactive_phase`, `setup_phase_not_allowed`, `unknown_module` and one `invalid_params`.
+- **`test/shareHandlers.ts`:** share and revoke for rulesets.
+- **`test/catalogFixture.ts`:** check that it lists all six phases with their params schemas.
 
-### Drag-and-drop library
-- **dnd-kit** (frontend_plan §1). Check the newest release and its React 19 support before installing, since dnd-kit also ships a newer `@dnd-kit/react` package. Pin the exact version.
-- F2 needs only the core package; sortable lists come with F3's phase pipeline.
+### Drag-and-drop
+- **`@dnd-kit/sortable` 10.0.0** (frontend_plan §1), exact; it needs `@dnd-kit/core` ^6.3.0, and 6.3.1 is installed. Check for a newer release before installing.
+- Pointer sensor only, like F2: the Move up/down buttons are the keyboard path.
 
 ### Logging
-- **No new events, apart from `share.copy_failed`.** The server already logs `share.created`, `share.revoked` and `share.imported`, and API failures go through `api.request_failed`.
+- **No new events.** API failures go through `api.request_failed`, and the server logs ruleset changes and shares.
 
-### From M4
-The validity panel and the import page use these (backend_plan §4, §6 and §8):
-- **Listing:** `GET /api/rulesets` (paginated, `{items, total}`) lists the seeded default ruleset first, then the user's own by name. Each item is a full `RulesetOut`, so `definition.deck` (`size`, `max_copies`, `allow_neutral`) needs no second request. `GET /api/rulesets/{id}` returns one.
-- **Finding the default:** it is a read-only system ruleset, `is_system: true` and `system_key: "default"`, named "Default". Code finds it by `system_key`.
-- **The share preview's `ruleset` kind:** `{kind: "ruleset", code, name, author, definition}`.
+### From M4 (what the server gives)
+- **Phases in the catalog** (`GET /api/catalog` → `phases: [{key, name, description, params_schema, interactive}]`):
+  - `action_phase` (interactive): `actor` (active/both), `allow` (play, move, attack: checkboxes), `time_limit_s` (10–600, default 90)
+  - `draw`: `count` (1–5)
+  - `gain_mana`, `lane_combat`, `discard_to_hand_limit` and `end_turn`: no params
+- **`RulesetDefinition`:** `schema_version`, `board`, `deck`, `mana`, `hand`, `setup`, `turn`; every section is required in responses (F2's schema fix). Bounds and pipeline rules: backend_plan §6.
+- **`POST /api/rulesets/validate`** always answers 200 `{valid, errors: [{path, code, message}], definition}`; `definition` is the normalized one when valid, else null. A save with errors gets 422 `invalid_ruleset` with the same `errors`.
+- **The default** (`system_key: "default"`) is read-only: PATCH, DELETE, share and revoke answer 403 `system_ruleset_read_only`.
 
 ## Done when
-- [x] **Deck list:**
-  - the user's decks, newest first, with origin, card count against the default size, and the shared mark
-  - share and delete from the list
-  - a share code can be typed in and opened
-- [x] **Deck builder:**
-  - a new deck is created on Save
-  - cards are added by click and by drag; **−** and **+** set the copies within 1–4, at most 60 in total
-  - an origin change lists the cards it removes, and Save sends both together
-  - server errors show where they belong
-  - leaving with unsaved changes asks first
-- [x] **Mana curve and validity panel:**
-  - the curve shows bars from 0 to 7+
-  - the panel checks size, copies and neutral against the default ruleset, or a chosen one, as information only
-- [x] **Share dialog:**
-  - for decks and groups: create, show the code and link, copy, and revoke
-  - an existing code shows on open
-- [x] **Import page:**
-  - previews of a deck, a group and a ruleset (preview only)
-  - importing lands on the new deck, or on the card library filtered to the new group
-  - a revoked or unknown code shows the "doesn't work any more" message
-- [x] **F1 pages:** deck names in the 409 lists are links, and groups can be shared from the card library.
-- [x] **Checks pass:** `npm run lint`, `format:check`, `typecheck`, `test` and `build`. `npm run e2e` passes with the new share spec, run with `--workers=1` (see Notes: the dev nginx stalls under parallel load).
-- [ ] **Checked by hand** through nginx (the first two are covered by `e2e/share.spec.ts` through nginx; the art and a look in two real browsers are still to do):
-  - one user builds a deck by dragging and shares it
-  - another user, in a second browser, imports it
-  - the same for a card group
-  - the copied art shows
+- [x] **Rules list:** the default, then the user's own, with summaries and the shared mark; View/Edit, Duplicate, Share and Delete.
+- [x] **Rules editor:**
+  - a new rule set starts from the default, or from any rule set with Duplicate, and is created on Save
+  - every setting can be edited, and the board thumbnail follows lanes and slots
+  - phases can be added from the palette, set up, reordered by drag and by Move up/down, and removed
+  - `/validate` problems show inline at their path, and in the header list
+  - Save shows `invalid_ruleset` errors the same way; leaving with unsaved changes asks first
+  - the default is read-only, with Duplicate
+- [x] **Sharing:** own rule sets can be shared and revoked; a shared rule set's preview shows its settings and phases, and importing lands on the copy in the editor.
+- [x] **Checks pass:** `npm run lint`, `format:check`, `typecheck`, `test` and `build`. `npm run e2e` (with `--workers=1` until the dev nginx is fixed) passes with the new rules spec. Some runs needed `--retries` for the nginx stalls.
+- [ ] **Checked by hand** through nginx: duplicate the default, change the lanes, break and fix the turn (remove End turn, add it back), reorder by drag, save, reload; share it and import it as another user. Done in a scripted browser on 2026-11-13: duplicate, lanes, the broken and fixed turn, save, share, the list and the read-only default. The e2e spec covers the drag, the reload and the import. Still to do: a look by hand in a real browser.
 
 ## Decisions
-Confirmed with the user on 2026-11-11:
-- **Build M4 before F2.** The validity panel uses real rulesets, with the seeded default, and no deck rules are copied onto the client. (M4 is built.)
-- **New decks use `/decks/new`,** like the card and origin editors. Nothing is created until Save, so no empty decks are left behind.
-- **No drag-and-drop in the card library.** F2 drags only from the library into a deck. Moving cards between groups keeps the dialog.
-- **Leaving the builder with unsaved changes asks first** (in-app navigation and the tab's `beforeunload`).
-- **`deck.size` is exact:** a deck needs exactly that many cards for a room. The panel shows "24 / 30 cards" as a problem until it is 30.
-- **`allow_neutral: false` still allows a neutral deck.** It only flags neutral cards in a deck of another origin.
+Confirmed with the user on 2026-11-12:
+- **"Load" is Duplicate from the list.** Each rule set, the default too, has Duplicate (`/rules/new?from=<id>`). There is no Load button in the editor; frontend_plan §10 (UC5) is updated.
+- **Click to add, drag to reorder.** The palette's buttons add a phase to Setup or Turn (in Turn, before a final `end_turn`). Dragging only reorders within one pipeline; Move up/down buttons do the same from the keyboard.
 
-Confirmed with the user on 2026-11-12 (proposed by the plan, all kept):
-- **The deck list checks only the size.** The full check (copies, neutral) is in the builder, since the list's summaries have no cards.
-- **The share dialog lives in `features/share/`**, not `features/decks/` as frontend_plan §2 has it, since groups use it too.
-- **The share code form is on `/decks`.** The dashboard's "Join by code" (F4) is for rooms, and a second code box there would be confusing.
-- **The mana curve** has bars for 0–6 and 7+, built with CSS (no chart library).
-- **The builder's library** loads the origin's cards and the neutral cards in full, and filters on the client. The card library's paging isn't needed for one origin's cards.
-- **Shared rulesets are previewed only.** M4's server import works, but F3 adds the rulesets page an import would land on.
-
-## Decided while building (2026-11-12)
-- **dnd-kit:** `@dnd-kit/core` 6.3.1 (confirmed with the user). `@dnd-kit/react` was 0.5.3, pre-1.0. Only the pointer drags (5 px to start); there is no keyboard sensor, so Enter and Space press the card's own button.
-- **The ruleset schema (backend):** `RulesetDefinition` sets `json_schema_serialization_defaults_required`, so the generated types mark `deck`, `board` and the other sections required. Without it they came out optional, since `default_factory` writes no default into the schema. Backend checks pass (564 tests).
-- **`OriginPreview` takes props;** `OriginFormPreview` feeds it the origin form's values, and the import page uses it directly.
-- **`ui/IconButton`** is `CardGroupPanel`'s old private icon button, shared with the deck list and the deck rows (now with `disabled`).
-- **The builder's state:** React Hook Form holds the name and origin; the cards are local state. Dirty means the form is dirty, or the cards differ from the last save. A save after an origin change sends both. A `deck_not_found` on Save reloads the deck, so the page shows not-found.
-- **Copy:** "Rule sets can be imported once the rules editor is ready." (no "F3" in the UI). A deck import's note adds "in a new card group named after the deck".
-- **Card edits refresh open decks** (`["decks", "detail"]`), since a deck shows its cards' names and costs.
-- **The fake API** for decks, rulesets and sharing lives in `test/deckHandlers.ts` and `test/shareHandlers.ts`, with shared helpers in `test/handlerUtils.ts`. The mock's `card_group_not_found` is now the server's `group_not_found`.
+Proposed by this spec, confirmed with the user on 2026-11-13:
+- **`/rules/new` starts from the default definition** with an empty name, and the default's own page is read-only with Duplicate (like origin templates).
+- **No rule bounds on the client.** The debounced `/validate` reports every bound at its field, so the bounds aren't copied into `bounds.ts`. Phase params keep `SchemaForm`'s catalog checks ("Use 600 or less."), as in the card editor (confirmed 2026-11-13).
+- **Save is never disabled by the validation.** The server decides, and a 422 shows the same inline errors.
+- **The validation runs debounced (500 ms)** after every change, as a query keyed by the definition.
+- **The leave guard moves to `ui/`**, shared by the deck builder and the rules editor.
+- **Shared rule sets become importable** (F2 left them preview only), landing on `/rules/:id`.
+- **The turn-order strip** (frontend_plan §4.3's "Preview turn") is part of F3: a read-only list, no game-state simulation.
 
 ## Tasks
 Order:
-1. `npm run gen:api` and dnd-kit
+1. `@dnd-kit/sortable`, routes and nav
 2. hooks and the fake API
-3. share dialog
-4. deck list
-5. builder
-6. import page
-7. F1 page changes
-8. e2e
-9. docs
+3. the leave guard move, and `ShareKind`
+4. rules list
+5. editor: settings form and board thumbnail
+6. editor: pipelines, palette and drag
+7. editor: validation display, save and the read-only default
+8. sharing and the import page
+9. e2e
+10. docs
 
 Each step comes with its tests.
 
 ### Setup
-- [x] `npm run gen:api` with the API running on M4's code, and check that only the ruleset and share types change.
-- [x] Check dnd-kit's newest release and its React 19 support, then install it with an exact version.
-- [x] Routes: `/decks`, `/decks/new`, `/decks/:id` and `/share/:code`. Add Decks to the nav.
+- [x] Check `@dnd-kit/sortable`'s newest release and its peer range, then install it with an exact version.
+- [x] Routes: `/rules`, `/rules/new` and `/rules/:id`. Add Rules to the nav.
 
 ### Hooks and fake API
-- [x] `useDecks.ts`, `useShare.ts` and `useRulesets.ts`.
-- [x] The fake API: decks with counts and share codes, group share codes, share preview and import, and rulesets.
+- [x] `useRuleset`, `useCreateRuleset`, `useUpdateRuleset`, `useDeleteRuleset` and `useRulesetValidation`; `ShareKind` adds `ruleset`.
+- [x] The fake API: ruleset CRUD, a simplified `/validate`, and ruleset share and revoke.
 
-### Decks
+### Rules
 - [x] Pure helpers, with unit tests:
-  - `deckEntries`: add, remove, the 1–4 and 60 bounds, and trimming on an origin change
-  - `manaCurve`
-  - `deckProblems`
-- [x] `DeckListPage`, with the share code form.
-- [x] `DeckBuilderPage`:
-  - the header, the library panel (the origin's and neutral cards, with filters), the deck panel and the origin-change dialog
-  - save and its errors, the unsaved-changes guard, and delete
-- [x] Dragging library cards into the deck (dnd-kit), with click and keyboard to add as well.
-- [x] `ManaCurveChart` and `DeckValidityPanel`.
+  - `insertPhase` (at the end, or before a final `end_turn`) and the move helpers
+  - `errorsByPath`: `RuleError`s grouped for the settings, the phases, the pipelines and the header
+  - `rulesetSummary` (the list's one-line summary) and the "<name> copy" name
+- [x] `RulesListPage`.
+- [x] `RulesEditorPage` and `RulesForm`: the header, `RulesSettingsForm` with `BoardThumbnail`, `PhasePipeline`, `PhaseItem`, `ModulePalette` and `TurnOrderStrip`.
+- [x] Validation status and inline errors; save and its errors; the leave guard; delete; the read-only default.
 
 ### Sharing
-- [x] `ShareDialog`: create, copy (with the fallback), revoke, and an existing code.
-- [x] `ImportPage`: the deck, group and ruleset previews, the own-content note, import and where it goes, and `share_not_found`.
-
-### F1 pages
-- [x] Deck links in `DeleteCardDialog`, `DeleteOriginDialog` and the card editor's `card_in_use`.
-- [x] `CardGroupPanel`: Share, and the shared mark.
-- [x] Remove the stale F2 comments.
+- [x] `ShareDialog` for rulesets, from the list and the editor.
+- [x] `ImportPage`: the ruleset summary (`RulesetSummary`), the import, and where it lands.
 
 ### Tests
-- [x] **Unit:** `deckEntries`, `manaCurve` and `deckProblems`.
+- [x] **Unit:** the pipeline helpers, `errorsByPath` and `rulesetSummary`.
 - [x] **Pages (Vitest and MSW):**
-  - **`DeckListPage`:** the list, the size check, delete, and the code form
-  - **`DeckBuilderPage`:**
-    - a new deck, and an existing deck
-    - adding by click, the bounds, and **−**/**+**
-    - an origin change, with its dialog
-    - the Save payload, `card_origin_mismatch` and `deck_too_large`
-    - the unsaved-changes prompt
-  - **`ShareDialog`:** create, copy, revoke, and an existing code
-  - **`ImportPage`:**
-    - a deck, a group, your own content, and a ruleset (no import button)
-    - an import, and where it lands
-    - not found
-  - **F1 pages:** the deck links in the delete dialogs, and sharing from `CardGroupPanel`
-- [x] **e2e** (`e2e/share.spec.ts`, two browser contexts):
-  - Alice makes cards and builds a deck, with one card dragged and one clicked, saves and shares it.
-  - Bob opens the link, sees the preview, imports, and lands on his copy.
-  - The same for a card group, landing on the filtered card library.
+  - **`RulesListPage`:** the default and own rule sets, the summaries, Duplicate, delete, the shared mark
+  - **`RulesEditorPage`:**
+    - a new rule set from the default, a duplicate, and an existing one
+    - the settings and the thumbnail
+    - adding (before `end_turn`), Move up/down, removing, editing params
+    - validation errors at each kind of path, and the header list
+    - the Save payload, `invalid_ruleset`, and not-found
+    - the read-only default, and the unsaved-changes prompt
+  - **`ImportPage`:** a ruleset preview and its import
+  - **`ShareDialog`:** a ruleset
+- [x] **e2e** (`e2e/rules.spec.ts`): duplicate the default, change the lanes, remove End turn and see the error, add it back, add a Draw and drag it into place, set a time limit, save, reload and see the values. A second test (two contexts) shares a rule set and imports it.
 
 ### Docs
 - [x] [frontend_plan.md](frontend_plan.md):
-  - §1: dnd-kit (core in F2, sortable in F3)
-  - §2: the `decks/` and `share/` files, and the new hooks
-  - §3: `/decks/new`, and the size check in the deck list
-  - §4.2: creating a deck, the unsaved-changes guard, the validity panel and where the share dialog opens from
-  - §4.2a: the code form, the own-content note and the `ruleset` kind
-  - §7: F2 done
+  - §1: `@dnd-kit/sortable` installed
+  - §2: the `rules/` files, and the leave guard in `ui/`
+  - §3: `/rules/new?from=`, and the list's contents
+  - §4.2a: rule sets can be imported
+  - §4.3: click to add, drag to reorder, the read-only default, how errors are placed, no client bounds
+  - §7: F3 done
+  - §10: UC5 is Duplicate from the list
 - [x] Update this file, and write the session file.
 
+## Decided while building (2026-11-13)
+- **Validation errors stay out of React Hook Form.** `setError` on a path with no input (`turn`, `turn.2`) would stop `handleSubmit`, so Save would be blocked. `placeRuleErrors` sorts the errors, `catalog/outsideFieldErrors.ts` hands them to `useFieldError` (the form's own error first), and a `RuleErrorsContext` serves the phases and pipelines.
+- **The validation query** is keyed by the definition's JSON, outside `["rulesets"]` (a save doesn't recheck), with `staleTime: Infinity` and the previous answer kept while the next one loads. A refused save (`invalid_ruleset`) writes its errors into that query for the sent definition, so they show the same way, plus "Couldn't save: fix the problems listed above."
+- **The header's list says where each error is** ("Lanes: …", "Turn, phase 3 (Action phase): …"), since the server's messages alone ("Input should be less than or equal to 5") don't.
+- **The default's page runs no validation:** it can't change.
+- **Phase summaries are generic:** `describeParams` gives "Draw · Count 1", not "Draw · 1 card", so no module gets text of its own.
+- **A phase the catalog doesn't know** has no handle and no Move buttons, only Remove.
+- **Focus:** a Move button that turns disabled at an end hands the focus to the other one; Remove gives it to the pipeline's heading. A hidden live region says "Draw was moved to position 1 of 4."
+- **The board thumbnail draws up to 10** lanes and slots. That's a drawing limit, not a rule; past it the thumbnail says "No board preview for these numbers."
+- **The palette's buttons** say "Add to Setup" and are named "Add Draw to Setup" with `aria-label`: a hidden span in the middle of the text showed as a double space.
+- **Small shared changes:** `copyName` in `api/bounds.ts` (the origin editor uses it too), an optional `ref` on `ui/IconButton`, `ui/dragDistance.ts` (5 px, both drag areas), `ui/useDebouncedValue.ts`.
+- **The fake API:** `test/rulesetHandlers.ts` (the list moved there from `deckHandlers.ts`), all six phases in `catalogFixture.ts`, `time_limit_s` in the fixture's action phase, and `test/rulesEditor.ts` helpers.
+
+## Added after the first build (2026-11-13, asked by the user)
+- **Mana mode:** a new rules setting, `mana.mode`:
+  - `grow` (the default, Hearthstone-style): the maximum rises by Mana per turn, up to Maximum mana, and mana refills
+  - `restore`: a player gets Mana per turn back, up to Maximum mana, and unspent mana carries over
+  - Either way, a player's first turn has Starting mana.
+- **Backend:** `ManaRules.mode` in `schemas/rules.py`, the `gain_mana` description, and tests.
+  - Definitions stored before it read as `grow` (responses always go through the schema), so there is no data migration.
+  - The seed migration's literal is left as it is; the engine (M5) applies the mode, as backend_plan §7.3 says.
+- **Frontend:** `schema.d.ts` regenerated, and a "Mana each turn" radio group (`ManaModeField`) in the Mana section, with a hint for the chosen mode.
+
 ## Out of scope
-- **Drag-and-drop in the card library** (decided above).
-- **Importing rulesets:** F3. The import page only previews them (confirmed 2026-11-12).
-- **Duplicating a deck in place.** Importing your own code already makes a copy.
-- **A deck's own art or cover, and deck notes.**
-- **Validity in the deck list beyond the size.**
-- **Starter decks:** `scripts/seed.py` (backend_plan §10).
+- **A "Load from…" button in the editor** (Duplicate covers it; confirmed 2026-11-12).
+- **Dragging from the palette, or between Setup and Turn** (confirmed 2026-11-12).
+- **A rule sets tile on the dashboard.** The list's `total` includes the default, so it needs its own count; it can come with F4's room creation.
+- **Simulating a turn** or a whole game from the rules (F5's board shows the real thing).
+- **Editing the default rule set** (the server keeps it read-only).
+- **Ruleset `schema_version` migrations** on the client (`migrate()` is server-side).
 
 ## Notes
-- **The dev nginx stalls under parallel load (found in F2, not caused by it).** `host.docker.internal` resolves to an IPv6 address that nginx can't reach (`Network unreachable`, logged since 2026-10-23), and nginx → host is slow for many small requests (8 parallel page loads: ~2.5 s straight from Vite, 7–10 s or a timeout through nginx). With 4 Playwright workers and two-user specs, page loads time out. `--workers=1` passes. A possible fix, not applied: map `host.docker.internal` to the IPv4 host gateway only, and/or limit Playwright's workers.
-- **Bundle size:** the production bundle is 559 kB (F1: 480 kB), over Vite's 500 kB warning. It's a warning only; splitting by route was already planned for when F5 adds the board.
-- **Things F1 left ready for F2:**
-  - `libraryParams` reads `?group=<id>`, the address the group import goes to
-  - `InUseList` takes `linkTo`
-  - `useLibraryCounts` already counts decks
-  - the dashboard has a Decks tile
-- **`useBlocker` works here:** it needs a data router, and `App.tsx` uses `createBrowserRouter` while the tests' `renderApp` uses `createMemoryRouter` (react-router 8.5.1, checked 2026-11-12).
-- **The backend's deck shapes** (`schemas/deck.py`):
-  - the list returns `DeckSummaryOut` (`origin_id`, `card_count`, `share_code`)
-  - `GET /api/decks/{id}` returns `DeckOut`, which adds `cards: [{card: CardOut, count}]`, sorted by mana, then name
-  - the hard bounds are `MAX_COPIES = 4` and `MAX_DECK_SIZE = 60`. They will be copied into `api/bounds.ts`.
+- **What already exists:**
+  - `catalog/SchemaForm` renders every phase param type (integers, enums, and `allow` as checkboxes); `defaultParams` and `describeParams` are in `catalog/schemaFields.ts`.
+  - `catalog/ModuleListField` shows how an unknown module is handled, but it forbids repeats and has no order, so the pipelines need their own component.
+  - `useRulesets` and `findDefaultRuleset` (F2), `ShareDialog`, the import page, and `useLeaveGuard`.
+  - The origin editor's `?from=<id>` duplicate and read-only template are the pattern for the default rule set.
+- **Error paths and the form:** with React Hook Form holding the definition (`board.lanes`, `turn.2.params.time_limit_s`), a `RuleError.path` joined with dots is the field's name, so `SchemaForm`'s fields can show their errors through `useFieldError`. After a reorder, the old errors may point at the wrong phase until the next validation, a moment later.
+- **The server's messages** are written for users (for example "A turn needs a phase where players act, such as 'action_phase'"), so the UI shows them as they are.
 
 ## Open questions
-None at the moment.
+- None for F3. The dev nginx stall is a separate fix for the user to decide (F2 session file).

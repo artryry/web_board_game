@@ -9,6 +9,11 @@
 
 export const NAME_MAX_LENGTH = 40;
 
+/** The name a duplicate starts with: "<name> copy", cut to fit. */
+export function copyName(name: string): string {
+  return `${name} copy`.slice(0, NAME_MAX_LENGTH).trim();
+}
+
 export const MANA_MIN = 0;
 export const MANA_MAX = 10;
 export const HP_MIN = 1;

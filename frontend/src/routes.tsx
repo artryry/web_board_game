@@ -12,6 +12,8 @@ import { DeckBuilderPage } from "@/features/decks/DeckBuilderPage";
 import { DeckListPage } from "@/features/decks/DeckListPage";
 import { OriginEditorPage } from "@/features/origins/OriginEditorPage";
 import { OriginListPage } from "@/features/origins/OriginListPage";
+import { RulesEditorPage } from "@/features/rules/RulesEditorPage";
+import { RulesListPage } from "@/features/rules/RulesListPage";
 import { ImportPage } from "@/features/share/ImportPage";
 import { NotFoundPage } from "@/NotFoundPage";
 import { RouteErrorPage } from "@/RouteErrorPage";
@@ -47,6 +49,9 @@ export const routes: RouteObject[] = [
               { path: "/decks", element: <DeckListPage /> },
               { path: "/decks/new", element: <DeckBuilderPage /> },
               { path: "/decks/:id", element: <DeckBuilderPage /> },
+              { path: "/rules", element: <RulesListPage /> },
+              { path: "/rules/new", element: <RulesEditorPage /> },
+              { path: "/rules/:id", element: <RulesEditorPage /> },
               { path: "/share/:code", element: <ImportPage /> },
               { path: "*", element: <NotFoundPage /> },
             ],

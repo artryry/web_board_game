@@ -14,9 +14,9 @@ import {
 import { apiError, apiUrl, authorized } from "./handlers";
 import { noContent, pageOf, readBody, type Body, type IdParams } from "./handlerUtils";
 
-// Decks and rulesets over the in-memory store. A deck save is checked the way the server checks
-// it (backend services/deck_service.py), in the same order, so the builder's error paths can be
-// tested; ruleset deck rules are never checked on save.
+// Decks over the in-memory store. A deck save is checked the way the server checks it (backend
+// services/deck_service.py), in the same order, so the builder's error paths can be tested;
+// ruleset deck rules are never checked on save.
 
 const deckNotFound = () => apiError(404, "deck_not_found", "Deck not found");
 
@@ -132,9 +132,5 @@ export const deckHandlers = [
       contentStore.decks = contentStore.decks.filter((deck) => deck.id !== params.id);
       return noContent();
     }),
-  ),
-  http.get(
-    apiUrl("/api/rulesets"),
-    authorized(({ request }) => pageOf(contentStore.rulesets, request)),
   ),
 ];

@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 
 // Users made by the e2e tests stay in the dev DB. They all start with "e2e_", so one statement
 // removes them and, by cascade, everything they made:
@@ -36,4 +36,19 @@ export async function createCard(page: Page, card: { name: string; origin: strin
   await page.getByLabel("Origin", { exact: true }).selectOption({ label: card.origin });
   await page.getByRole("button", { name: "Create card" }).click();
   await expect(page).toHaveURL(/\/cards$/);
+}
+
+/**
+ * Drags with the mouse the way a user does: press, a small move to start the drag (the app waits
+ * for 5 px), a few steps to the target, release.
+ */
+export async function dragOnto(page: Page, source: Locator, target: Locator) {
+  const from = await source.boundingBox();
+  const to = await target.boundingBox();
+  if (from === null || to === null) throw new Error("Drag source or target isn't visible");
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(from.x + from.width / 2 + 10, from.y + from.height / 2 + 10);
+  await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, { steps: 10 });
+  await page.mouse.up();
 }

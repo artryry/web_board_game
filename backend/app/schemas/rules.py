@@ -36,11 +36,20 @@ class DeckRules(_Section):
     allow_neutral: bool = True
 
 
+# How the `gain_mana` phase gives a player their mana each turn (backend_plan §7.3):
+# - "grow": their maximum rises by `per_turn`, up to `max`, then their mana refills (Hearthstone).
+# - "restore": they get `per_turn` back, up to `max`; unspent mana carries over.
+# Either way, a player's first turn has `start` mana.
+ManaMode = Literal["grow", "restore"]
+
+
 class ManaRules(_Section):
     # At most `max`; rules_service checks it, so the error can point at `start`.
     start: Annotated[int, Field(ge=0, le=20)] = 1
     per_turn: Annotated[int, Field(ge=1, le=5)] = 1
     max: Annotated[int, Field(ge=1, le=20)] = 10
+    # Added after M4. Definitions stored without it read as "grow", which is how they were meant.
+    mode: ManaMode = "grow"
 
 
 class HandRules(_Section):

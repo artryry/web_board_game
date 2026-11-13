@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 
 interface IconButtonProps {
   /** The action, such as "Delete Beasts". It is the button's name and its tooltip. */
@@ -7,12 +7,14 @@ interface IconButtonProps {
   disabled?: boolean;
   /** The icon, marked `aria-hidden`. */
   children: ReactNode;
+  ref?: Ref<HTMLButtonElement>;
 }
 
 /** A small button that shows only an icon, for actions on one row of a list. */
-export function IconButton({ label, onClick, disabled = false, children }: IconButtonProps) {
+export function IconButton({ label, onClick, disabled = false, children, ref }: IconButtonProps) {
   return (
     <button
+      ref={ref}
       type="button"
       title={label}
       onClick={onClick}

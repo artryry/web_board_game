@@ -16,6 +16,7 @@ import {
 } from "./contentStore";
 import { apiError, apiUrl, authorized } from "./handlers";
 import { noContent, type IdParams } from "./handlerUtils";
+import { rulesetNotFound, rulesetReadOnly, rulesetShareTarget } from "./rulesetHandlers";
 
 // Share codes, previews and imports over the in-memory store. The import is a simplified fork of
 // the server's (backend services/share_service.py): custom origins are copied once, the cards get
@@ -176,10 +177,16 @@ function importShared(shared: Shared) {
   return { kind: "ruleset", ruleset };
 }
 
+interface ShareTarget {
+  shareCode: string | null;
+  /** The default ruleset: it can't be shared or revoked. */
+  readOnly?: boolean;
+}
+
 /** Share and revoke for one kind: sharing again returns the same code, revoking always works. */
 function shareRoutes(
   path: string,
-  find: (id: string) => { shareCode: string | null } | undefined,
+  find: (id: string) => ShareTarget | undefined,
   notFound: () => Response,
 ) {
   return [
@@ -188,6 +195,7 @@ function shareRoutes(
       authorized<IdParams, Response>(({ params }) => {
         const target = find(params.id);
         if (target === undefined) return notFound();
+        if (target.readOnly === true) return rulesetReadOnly();
         target.shareCode ??= newShareCode();
         return HttpResponse.json({ share_code: target.shareCode });
       }),
@@ -197,6 +205,7 @@ function shareRoutes(
       authorized<IdParams, Response>(({ params }) => {
         const target = find(params.id);
         if (target === undefined) return notFound();
+        if (target.readOnly === true) return rulesetReadOnly();
         target.shareCode = null;
         return noContent();
       }),
@@ -227,6 +236,7 @@ export const shareHandlers = [
   ...shareRoutes("/api/card-groups", groupShareTarget, () =>
     apiError(404, "group_not_found", "Card group not found"),
   ),
+  ...shareRoutes("/api/rulesets", rulesetShareTarget, rulesetNotFound),
   http.get<CodeParams>(
     apiUrl("/api/share/:code"),
     authorized<CodeParams, Response>(({ params }) => {

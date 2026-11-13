@@ -1066,6 +1066,12 @@ export interface components {
              * @default 10
              */
             max: number;
+            /**
+             * Mode
+             * @default grow
+             * @enum {string}
+             */
+            mode: "grow" | "restore";
         };
         /**
          * ModuleRef

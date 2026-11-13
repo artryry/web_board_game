@@ -4,6 +4,7 @@ import { Button } from "@/ui/Button";
 import { SelectField } from "@/ui/SelectField";
 
 import { humanize } from "./humanize";
+import { useOutsideFieldError } from "./outsideFieldErrors";
 import type { SchemaField } from "./schemaFields";
 
 type EnumArrayField = Extract<SchemaField, { kind: "enum-checkboxes" | "enum-list" }>;
@@ -115,7 +116,8 @@ function useEnumArray(field: EnumArrayField, path: string) {
     name: path,
     rules: { validate: (value: unknown) => countProblem(stringArray(value).length, field) ?? true },
   });
-  return { input, chosen: stringArray(input.value), error: fieldState.error?.message };
+  const outside = useOutsideFieldError(path);
+  return { input, chosen: stringArray(input.value), error: fieldState.error?.message ?? outside };
 }
 
 function countProblem(count: number, field: EnumArrayField): string | undefined {
