@@ -35,12 +35,12 @@ describe("SchemaForm", () => {
   it("sends numbers as numbers and enums as their keys", async () => {
     const { onSubmit, user } = renderSchema("stat_bonus");
 
-    await user.selectOptions(screen.getByLabelText("Applies To"), "Enemy");
+    await user.selectOptions(screen.getByLabelText("Applies To"), "All own");
     await user.clear(screen.getByLabelText("DMG"));
     await user.type(screen.getByLabelText("DMG"), "2");
     await user.click(screen.getByRole("button", { name: "Submit" }));
 
-    expect(submitted(onSubmit)).toEqual({ params: { applies_to: "enemy", hp: 0, dmg: 2 } });
+    expect(submitted(onSubmit)).toEqual({ params: { applies_to: "all_own", hp: 0, dmg: 2 } });
   });
 
   it("checks an integer's bounds before submitting", async () => {

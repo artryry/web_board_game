@@ -1,4 +1,5 @@
 from app.engine.modules.field_effects import (
+    attacker_penalty,
     free_move,
     mana_discount,
     section_hp_bonus,
@@ -8,6 +9,7 @@ from app.engine.modules.field_effects import (
 )
 
 __all__ = [
+    "attacker_penalty",
     "free_move",
     "mana_discount",
     "section_hp_bonus",

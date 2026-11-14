@@ -283,11 +283,14 @@ frontend/
 - The `PhaseTracker` lists the ruleset's turn pipeline and highlights the current phase and whose action it is. In `actor: both` phases it shows both players' ready states.
 - `TurnTimer` counts down to the `deadline` that the server sends. The length comes from the ruleset's phase setting (default 90 s). It turns into a warning colour for the last 10 s.
 - **Surrender** asks for confirmation first.
+- **Field bonuses** (M5): a creature shows the HP and DMG its section's field gives it (`field_bonus` in the view). A conquered section gives none, so creatures in it lose that bonus (a `stats_changed` event animates it). Both decks show as counts only.
+- **Hand costs:** a hand card shows `cost` from the view, which already has the player's `mana_discount` in it. The board never works a discount out itself.
+- **`GameOverModal`** shows a win, a loss or a **draw** (`winner: null`), with the reason: conquered, surrender or out of cards. Out of cards means neither player has a card left and no creature is on the board; the player with more sections left wins.
 
 ### 5.2 Movement comes from the server
 - Each `game_state` message includes `legal_actions`. The store builds an index from it: source uid → list of `{action type, valid targets}`.
 - A hand card or creature is **draggable only if it is the source of some legal action**. Cards that can't move are shown slightly dimmed.
-- While dragging, only that card's valid targets light up as drop zones: empty slots for playing, sections for moving, and enemy creatures or sections for attacks.
+- While dragging, only that card's valid targets light up as drop zones: empty slots for playing and moving, the spell's targets for a spell, and enemy creatures or sections for attacks. A `move_enemy` spell takes two steps: the enemy creature, then the empty slot it goes to (one `creature_to_slot` target).
 - Dropping on a highlighted target sends the matching `action`. Dropping anywhere else cancels the drag.
 - **Click-to-target fallback** for touch devices and accessibility: click the source, then click a highlighted target. Esc cancels.
 

@@ -47,6 +47,7 @@ STARTER_KEYS: dict[type[Module], set[str]] = {
         "damage_section",
     },
     FieldEffectModule: {
+        "attacker_penalty",
         "stat_bonus",
         "section_hp_bonus",
         "free_move",

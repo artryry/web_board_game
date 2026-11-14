@@ -18,7 +18,7 @@ describe("parseSchema", () => {
         name: "applies_to",
         title: "Applies To",
         kind: "enum",
-        options: ["own_origin", "all_own", "enemy"],
+        options: ["own_origin", "all_own"],
         default: "own_origin",
       },
       { name: "hp", title: "HP", kind: "integer", min: 0, max: 2, default: 0 },

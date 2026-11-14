@@ -1,0 +1,4110 @@
+{
+ "ruleset": {
+  "schema_version": 1,
+  "board": {
+   "lanes": 3,
+   "slots_per_section": 3,
+   "section_hp": 20
+  },
+  "deck": {
+   "size": 30,
+   "max_copies": 2,
+   "allow_neutral": true
+  },
+  "mana": {
+   "start": 2,
+   "per_turn": 2,
+   "max": 6,
+   "mode": "restore"
+  },
+  "hand": {
+   "max_size": 5,
+   "second_player_bonus_card": true
+  },
+  "setup": [
+   {
+    "key": "draw",
+    "params": {
+     "count": 3
+    }
+   }
+  ],
+  "turn": [
+   {
+    "key": "gain_mana",
+    "params": {}
+   },
+   {
+    "key": "draw",
+    "params": {
+     "count": 2
+    }
+   },
+   {
+    "key": "action_phase",
+    "params": {
+     "actor": "both",
+     "allow": [
+      "play",
+      "move"
+     ],
+     "time_limit_s": 60
+    }
+   },
+   {
+    "key": "lane_combat",
+    "params": {}
+   },
+   {
+    "key": "discard_to_hand_limit",
+    "params": {}
+   },
+   {
+    "key": "end_turn",
+    "params": {}
+   }
+  ]
+ },
+ "decks": [
+  {
+   "origin": {
+    "origin_id": "ocean",
+    "name": "Ocean",
+    "color": "grey",
+    "icon": "circle",
+    "field_effects": [
+     {
+      "key": "free_move",
+      "params": {}
+     },
+     {
+      "key": "spell_power",
+      "params": {
+       "amount": 1
+      }
+     }
+    ],
+    "background_art_url": null
+   },
+   "cards": [
+    {
+     "card_id": "card-wolf",
+     "name": "Wolf",
+     "kind": "creature",
+     "origin_id": "ocean",
+     "mana_cost": 1,
+     "hp": 3,
+     "dmg": 2,
+     "abilities": [],
+     "art_url": null
+    },
+    {
+     "card_id": "card-bear",
+     "name": "Bear",
+     "kind": "creature",
+     "origin_id": "ocean",
+     "mana_cost": 3,
+     "hp": 5,
+     "dmg": 3,
+     "abilities": [
+      {
+       "key": "taunt",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-hawk",
+     "name": "Hawk",
+     "kind": "creature",
+     "origin_id": "ocean",
+     "mana_cost": 2,
+     "hp": 2,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "ranged",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-rider",
+     "name": "Rider",
+     "kind": "creature",
+     "origin_id": "ocean",
+     "mana_cost": 2,
+     "hp": 2,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "charge",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-knight",
+     "name": "Knight",
+     "kind": "creature",
+     "origin_id": "ocean",
+     "mana_cost": 3,
+     "hp": 4,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "armor",
+       "params": {
+        "amount": 1
+       }
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-leech",
+     "name": "Leech",
+     "kind": "creature",
+     "origin_id": "ocean",
+     "mana_cost": 2,
+     "hp": 3,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "lifesteal_section",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-martyr",
+     "name": "Martyr",
+     "kind": "creature",
+     "origin_id": "ocean",
+     "mana_cost": 1,
+     "hp": 1,
+     "dmg": 1,
+     "abilities": [
+      {
+       "key": "deathrattle_damage",
+       "params": {
+        "amount": 2
+       }
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-druid",
+     "name": "Druid",
+     "kind": "creature",
+     "origin_id": "ocean",
+     "mana_cost": 2,
+     "hp": 2,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "field_affinity",
+       "params": {
+        "bonus": 1
+       }
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-rat",
+     "name": "Rat",
+     "kind": "creature",
+     "origin_id": "neutral",
+     "mana_cost": 0,
+     "hp": 1,
+     "dmg": 1,
+     "abilities": [],
+     "art_url": null
+    },
+    {
+     "card_id": "card-deal_damage",
+     "name": "Deal Damage",
+     "kind": "spell",
+     "origin_id": "ocean",
+     "mana_cost": 1,
+     "hp": null,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "deal_damage",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-damage_section",
+     "name": "Damage Section",
+     "kind": "spell",
+     "origin_id": "ocean",
+     "mana_cost": 2,
+     "hp": null,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "damage_section",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-heal",
+     "name": "Heal",
+     "kind": "spell",
+     "origin_id": "ocean",
+     "mana_cost": 1,
+     "hp": null,
+     "dmg": -3,
+     "abilities": [
+      {
+       "key": "heal",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-heal",
+     "name": "Heal",
+     "kind": "spell",
+     "origin_id": "ocean",
+     "mana_cost": 1,
+     "hp": null,
+     "dmg": -3,
+     "abilities": [
+      {
+       "key": "heal",
+       "params": {
+        "target": "section"
+       }
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-draw_cards",
+     "name": "Draw Cards",
+     "kind": "spell",
+     "origin_id": "ocean",
+     "mana_cost": 2,
+     "hp": null,
+     "dmg": null,
+     "abilities": [
+      {
+       "key": "draw_cards",
+       "params": {
+        "count": 1
+       }
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-buff",
+     "name": "Buff",
+     "kind": "spell",
+     "origin_id": "ocean",
+     "mana_cost": 1,
+     "hp": null,
+     "dmg": null,
+     "abilities": [
+      {
+       "key": "buff",
+       "params": {
+        "dmg": 1,
+        "hp": 1
+       }
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-summon_token",
+     "name": "Summon Token",
+     "kind": "spell",
+     "origin_id": "ocean",
+     "mana_cost": 2,
+     "hp": null,
+     "dmg": null,
+     "abilities": [
+      {
+       "key": "summon_token",
+       "params": {
+        "hp": 2,
+        "dmg": 1
+       }
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-move_enemy",
+     "name": "Move Enemy",
+     "kind": "spell",
+     "origin_id": "ocean",
+     "mana_cost": 1,
+     "hp": null,
+     "dmg": null,
+     "abilities": [
+      {
+       "key": "move_enemy",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-wolf",
+     "name": "Wolf",
+     "kind": "creature",
+     "origin_id": "ocean",
+     "mana_cost": 1,
+     "hp": 3,
+     "dmg": 2,
+     "abilities": [],
+     "art_url": null
+    },
+    {
+     "card_id": "card-bear",
+     "name": "Bear",
+     "kind": "creature",
+     "origin_id": "ocean",
+     "mana_cost": 3,
+     "hp": 5,
+     "dmg": 3,
+     "abilities": [
+      {
+       "key": "taunt",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-hawk",
+     "name": "Hawk",
+     "kind": "creature",
+     "origin_id": "ocean",
+     "mana_cost": 2,
+     "hp": 2,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "ranged",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-rider",
+     "name": "Rider",
+     "kind": "creature",
+     "origin_id": "ocean",
+     "mana_cost": 2,
+     "hp": 2,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "charge",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-knight",
+     "name": "Knight",
+     "kind": "creature",
+     "origin_id": "ocean",
+     "mana_cost": 3,
+     "hp": 4,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "armor",
+       "params": {
+        "amount": 1
+       }
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-leech",
+     "name": "Leech",
+     "kind": "creature",
+     "origin_id": "ocean",
+     "mana_cost": 2,
+     "hp": 3,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "lifesteal_section",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-martyr",
+     "name": "Martyr",
+     "kind": "creature",
+     "origin_id": "ocean",
+     "mana_cost": 1,
+     "hp": 1,
+     "dmg": 1,
+     "abilities": [
+      {
+       "key": "deathrattle_damage",
+       "params": {
+        "amount": 2
+       }
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-druid",
+     "name": "Druid",
+     "kind": "creature",
+     "origin_id": "ocean",
+     "mana_cost": 2,
+     "hp": 2,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "field_affinity",
+       "params": {
+        "bonus": 1
+       }
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-rat",
+     "name": "Rat",
+     "kind": "creature",
+     "origin_id": "neutral",
+     "mana_cost": 0,
+     "hp": 1,
+     "dmg": 1,
+     "abilities": [],
+     "art_url": null
+    },
+    {
+     "card_id": "card-deal_damage",
+     "name": "Deal Damage",
+     "kind": "spell",
+     "origin_id": "ocean",
+     "mana_cost": 1,
+     "hp": null,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "deal_damage",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-damage_section",
+     "name": "Damage Section",
+     "kind": "spell",
+     "origin_id": "ocean",
+     "mana_cost": 2,
+     "hp": null,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "damage_section",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-heal",
+     "name": "Heal",
+     "kind": "spell",
+     "origin_id": "ocean",
+     "mana_cost": 1,
+     "hp": null,
+     "dmg": -3,
+     "abilities": [
+      {
+       "key": "heal",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-heal",
+     "name": "Heal",
+     "kind": "spell",
+     "origin_id": "ocean",
+     "mana_cost": 1,
+     "hp": null,
+     "dmg": -3,
+     "abilities": [
+      {
+       "key": "heal",
+       "params": {
+        "target": "section"
+       }
+      }
+     ],
+     "art_url": null
+    }
+   ]
+  },
+  {
+   "origin": {
+    "origin_id": "mountain",
+    "name": "Mountain",
+    "color": "grey",
+    "icon": "circle",
+    "field_effects": [
+     {
+      "key": "section_hp_bonus",
+      "params": {
+       "amount": 5
+      }
+     },
+     {
+      "key": "turn_start_heal_section",
+      "params": {
+       "amount": 1
+      }
+     },
+     {
+      "key": "attacker_penalty",
+      "params": {
+       "hp": 1,
+       "dmg": 1
+      }
+     }
+    ],
+    "background_art_url": null
+   },
+   "cards": [
+    {
+     "card_id": "card-wolf",
+     "name": "Wolf",
+     "kind": "creature",
+     "origin_id": "mountain",
+     "mana_cost": 1,
+     "hp": 3,
+     "dmg": 2,
+     "abilities": [],
+     "art_url": null
+    },
+    {
+     "card_id": "card-bear",
+     "name": "Bear",
+     "kind": "creature",
+     "origin_id": "mountain",
+     "mana_cost": 3,
+     "hp": 5,
+     "dmg": 3,
+     "abilities": [
+      {
+       "key": "taunt",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-hawk",
+     "name": "Hawk",
+     "kind": "creature",
+     "origin_id": "mountain",
+     "mana_cost": 2,
+     "hp": 2,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "ranged",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-rider",
+     "name": "Rider",
+     "kind": "creature",
+     "origin_id": "mountain",
+     "mana_cost": 2,
+     "hp": 2,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "charge",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-knight",
+     "name": "Knight",
+     "kind": "creature",
+     "origin_id": "mountain",
+     "mana_cost": 3,
+     "hp": 4,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "armor",
+       "params": {
+        "amount": 1
+       }
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-leech",
+     "name": "Leech",
+     "kind": "creature",
+     "origin_id": "mountain",
+     "mana_cost": 2,
+     "hp": 3,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "lifesteal_section",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-martyr",
+     "name": "Martyr",
+     "kind": "creature",
+     "origin_id": "mountain",
+     "mana_cost": 1,
+     "hp": 1,
+     "dmg": 1,
+     "abilities": [
+      {
+       "key": "deathrattle_damage",
+       "params": {
+        "amount": 2
+       }
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-druid",
+     "name": "Druid",
+     "kind": "creature",
+     "origin_id": "mountain",
+     "mana_cost": 2,
+     "hp": 2,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "field_affinity",
+       "params": {
+        "bonus": 1
+       }
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-rat",
+     "name": "Rat",
+     "kind": "creature",
+     "origin_id": "neutral",
+     "mana_cost": 0,
+     "hp": 1,
+     "dmg": 1,
+     "abilities": [],
+     "art_url": null
+    },
+    {
+     "card_id": "card-deal_damage",
+     "name": "Deal Damage",
+     "kind": "spell",
+     "origin_id": "mountain",
+     "mana_cost": 1,
+     "hp": null,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "deal_damage",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-damage_section",
+     "name": "Damage Section",
+     "kind": "spell",
+     "origin_id": "mountain",
+     "mana_cost": 2,
+     "hp": null,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "damage_section",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-heal",
+     "name": "Heal",
+     "kind": "spell",
+     "origin_id": "mountain",
+     "mana_cost": 1,
+     "hp": null,
+     "dmg": -3,
+     "abilities": [
+      {
+       "key": "heal",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-heal",
+     "name": "Heal",
+     "kind": "spell",
+     "origin_id": "mountain",
+     "mana_cost": 1,
+     "hp": null,
+     "dmg": -3,
+     "abilities": [
+      {
+       "key": "heal",
+       "params": {
+        "target": "section"
+       }
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-draw_cards",
+     "name": "Draw Cards",
+     "kind": "spell",
+     "origin_id": "mountain",
+     "mana_cost": 2,
+     "hp": null,
+     "dmg": null,
+     "abilities": [
+      {
+       "key": "draw_cards",
+       "params": {
+        "count": 1
+       }
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-buff",
+     "name": "Buff",
+     "kind": "spell",
+     "origin_id": "mountain",
+     "mana_cost": 1,
+     "hp": null,
+     "dmg": null,
+     "abilities": [
+      {
+       "key": "buff",
+       "params": {
+        "dmg": 1,
+        "hp": 1
+       }
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-summon_token",
+     "name": "Summon Token",
+     "kind": "spell",
+     "origin_id": "mountain",
+     "mana_cost": 2,
+     "hp": null,
+     "dmg": null,
+     "abilities": [
+      {
+       "key": "summon_token",
+       "params": {
+        "hp": 2,
+        "dmg": 1
+       }
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-move_enemy",
+     "name": "Move Enemy",
+     "kind": "spell",
+     "origin_id": "mountain",
+     "mana_cost": 1,
+     "hp": null,
+     "dmg": null,
+     "abilities": [
+      {
+       "key": "move_enemy",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-wolf",
+     "name": "Wolf",
+     "kind": "creature",
+     "origin_id": "mountain",
+     "mana_cost": 1,
+     "hp": 3,
+     "dmg": 2,
+     "abilities": [],
+     "art_url": null
+    },
+    {
+     "card_id": "card-bear",
+     "name": "Bear",
+     "kind": "creature",
+     "origin_id": "mountain",
+     "mana_cost": 3,
+     "hp": 5,
+     "dmg": 3,
+     "abilities": [
+      {
+       "key": "taunt",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-hawk",
+     "name": "Hawk",
+     "kind": "creature",
+     "origin_id": "mountain",
+     "mana_cost": 2,
+     "hp": 2,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "ranged",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-rider",
+     "name": "Rider",
+     "kind": "creature",
+     "origin_id": "mountain",
+     "mana_cost": 2,
+     "hp": 2,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "charge",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-knight",
+     "name": "Knight",
+     "kind": "creature",
+     "origin_id": "mountain",
+     "mana_cost": 3,
+     "hp": 4,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "armor",
+       "params": {
+        "amount": 1
+       }
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-leech",
+     "name": "Leech",
+     "kind": "creature",
+     "origin_id": "mountain",
+     "mana_cost": 2,
+     "hp": 3,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "lifesteal_section",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-martyr",
+     "name": "Martyr",
+     "kind": "creature",
+     "origin_id": "mountain",
+     "mana_cost": 1,
+     "hp": 1,
+     "dmg": 1,
+     "abilities": [
+      {
+       "key": "deathrattle_damage",
+       "params": {
+        "amount": 2
+       }
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-druid",
+     "name": "Druid",
+     "kind": "creature",
+     "origin_id": "mountain",
+     "mana_cost": 2,
+     "hp": 2,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "field_affinity",
+       "params": {
+        "bonus": 1
+       }
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-rat",
+     "name": "Rat",
+     "kind": "creature",
+     "origin_id": "neutral",
+     "mana_cost": 0,
+     "hp": 1,
+     "dmg": 1,
+     "abilities": [],
+     "art_url": null
+    },
+    {
+     "card_id": "card-deal_damage",
+     "name": "Deal Damage",
+     "kind": "spell",
+     "origin_id": "mountain",
+     "mana_cost": 1,
+     "hp": null,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "deal_damage",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-damage_section",
+     "name": "Damage Section",
+     "kind": "spell",
+     "origin_id": "mountain",
+     "mana_cost": 2,
+     "hp": null,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "damage_section",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-heal",
+     "name": "Heal",
+     "kind": "spell",
+     "origin_id": "mountain",
+     "mana_cost": 1,
+     "hp": null,
+     "dmg": -3,
+     "abilities": [
+      {
+       "key": "heal",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-heal",
+     "name": "Heal",
+     "kind": "spell",
+     "origin_id": "mountain",
+     "mana_cost": 1,
+     "hp": null,
+     "dmg": -3,
+     "abilities": [
+      {
+       "key": "heal",
+       "params": {
+        "target": "section"
+       }
+      }
+     ],
+     "art_url": null
+    }
+   ]
+  }
+ ],
+ "seed": 7,
+ "actions": [
+  {
+   "seat": 0,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p0-1",
+    "target": {
+     "kind": "slot",
+     "seat": 0,
+     "lane": 0,
+     "slot": 0
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p0-4",
+    "target": {
+     "kind": "slot",
+     "seat": 0,
+     "lane": 0,
+     "slot": 1
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p1-1",
+    "target": {
+     "kind": "section",
+     "seat": 1,
+     "lane": 0
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p1-3",
+    "target": {
+     "kind": "creature",
+     "uid": "p0-1"
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p0-5",
+    "target": {
+     "kind": "slot",
+     "seat": 0,
+     "lane": 0,
+     "slot": 0
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p1-2",
+    "target": {
+     "kind": "section",
+     "seat": 0,
+     "lane": 0
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p0-8",
+    "target": {
+     "kind": "creature",
+     "uid": "p0-5"
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p1-4",
+    "target": {
+     "kind": "slot",
+     "seat": 1,
+     "lane": 0,
+     "slot": 0
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p1-9",
+    "target": {
+     "kind": "creature",
+     "uid": "p1-4"
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p0-7",
+    "target": {
+     "kind": "creature",
+     "uid": "p1-4"
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p0-9",
+    "target": {
+     "kind": "slot",
+     "seat": 0,
+     "lane": 0,
+     "slot": 2
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p1-6",
+    "target": {
+     "kind": "slot",
+     "seat": 1,
+     "lane": 0,
+     "slot": 0
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p0-10",
+    "target": {
+     "kind": "slot",
+     "seat": 0,
+     "lane": 0,
+     "slot": 0
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p1-7",
+    "target": {
+     "kind": "slot",
+     "seat": 1,
+     "lane": 0,
+     "slot": 0
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p1-14",
+    "target": {
+     "kind": "slot",
+     "seat": 1,
+     "lane": 0,
+     "slot": 1
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p0-11",
+    "target": {
+     "kind": "slot",
+     "seat": 0,
+     "lane": 0,
+     "slot": 1
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p1-8",
+    "target": {
+     "kind": "slot",
+     "seat": 1,
+     "lane": 0,
+     "slot": 2
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p0-16",
+    "target": {
+     "kind": "slot",
+     "seat": 0,
+     "lane": 0,
+     "slot": 0
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p0-14",
+    "target": {
+     "kind": "creature",
+     "uid": "p0-16"
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p0-17",
+    "target": {
+     "kind": "slot",
+     "seat": 0,
+     "lane": 0,
+     "slot": 1
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p1-10",
+    "target": {
+     "kind": "section",
+     "seat": 0,
+     "lane": 0
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p0-18",
+    "target": {
+     "kind": "section",
+     "seat": 0,
+     "lane": 0
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p0-19",
+    "target": {
+     "kind": "creature_to_slot",
+     "uid": "p1-8",
+     "to": {
+      "kind": "slot",
+      "seat": 1,
+      "lane": 0,
+      "slot": 0
+     }
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p1-11",
+    "target": {
+     "kind": "slot",
+     "seat": 1,
+     "lane": 0,
+     "slot": 1
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p0-20",
+    "target": {
+     "kind": "slot",
+     "seat": 0,
+     "lane": 0,
+     "slot": 0
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p1-13",
+    "target": {
+     "kind": "slot",
+     "seat": 1,
+     "lane": 0,
+     "slot": 0
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p0-21",
+    "target": {
+     "kind": "section",
+     "seat": 0,
+     "lane": 0
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p0-23",
+    "target": {
+     "kind": "slot",
+     "seat": 0,
+     "lane": 0,
+     "slot": 0
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p1-19",
+    "target": {
+     "kind": "creature_to_slot",
+     "uid": "p0-23",
+     "to": {
+      "kind": "slot",
+      "seat": 0,
+      "lane": 0,
+      "slot": 1
+     }
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p1-15",
+    "target": {
+     "kind": "slot",
+     "seat": 1,
+     "lane": 0,
+     "slot": 2
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p0-22",
+    "target": null
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p1-23",
+    "target": {
+     "kind": "slot",
+     "seat": 1,
+     "lane": 1,
+     "slot": 0
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p1-26",
+    "target": {
+     "kind": "slot",
+     "seat": 1,
+     "lane": 1,
+     "slot": 1
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p0-24",
+    "target": {
+     "kind": "slot",
+     "seat": 0,
+     "lane": 0,
+     "slot": 0
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p1-5",
+    "target": {
+     "kind": "slot",
+     "seat": 1,
+     "lane": 1,
+     "slot": 2
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p0-27",
+    "target": {
+     "kind": "slot",
+     "seat": 0,
+     "lane": 0,
+     "slot": 0
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p1-24",
+    "target": {
+     "kind": "slot",
+     "seat": 1,
+     "lane": 0,
+     "slot": 0
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p0-29",
+    "target": {
+     "kind": "creature",
+     "uid": "p1-23"
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p1-29",
+    "target": {
+     "kind": "creature",
+     "uid": "p1-26"
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p0-2",
+    "target": {
+     "kind": "slot",
+     "seat": 0,
+     "lane": 0,
+     "slot": 0
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p1-27",
+    "target": {
+     "kind": "creature",
+     "uid": "p0-2"
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p1-17",
+    "target": {
+     "kind": "slot",
+     "seat": 1,
+     "lane": 0,
+     "slot": 0
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p0-3",
+    "target": {
+     "kind": "slot",
+     "seat": 0,
+     "lane": 0,
+     "slot": 1
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p1-21",
+    "target": {
+     "kind": "slot",
+     "seat": 1,
+     "lane": 0,
+     "slot": 1
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p0-6",
+    "target": {
+     "kind": "slot",
+     "seat": 0,
+     "lane": 0,
+     "slot": 0
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "move",
+    "creature_uid": "p1-26",
+    "to": {
+     "kind": "slot",
+     "seat": 1,
+     "lane": 0,
+     "slot": 0
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "move",
+    "creature_uid": "p1-5",
+    "to": {
+     "kind": "slot",
+     "seat": 1,
+     "lane": 0,
+     "slot": 2
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p1-25",
+    "target": {
+     "kind": "slot",
+     "seat": 1,
+     "lane": 0,
+     "slot": 0
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p0-12",
+    "target": {
+     "kind": "slot",
+     "seat": 0,
+     "lane": 0,
+     "slot": 0
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "move",
+    "creature_uid": "p1-25",
+    "to": {
+     "kind": "slot",
+     "seat": 1,
+     "lane": 2,
+     "slot": 0
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  }
+ ],
+ "final_state": {
+  "ruleset": {
+   "schema_version": 1,
+   "board": {
+    "lanes": 3,
+    "slots_per_section": 3,
+    "section_hp": 20
+   },
+   "deck": {
+    "size": 30,
+    "max_copies": 2,
+    "allow_neutral": true
+   },
+   "mana": {
+    "start": 2,
+    "per_turn": 2,
+    "max": 6,
+    "mode": "restore"
+   },
+   "hand": {
+    "max_size": 5,
+    "second_player_bonus_card": true
+   },
+   "setup": [
+    {
+     "key": "draw",
+     "params": {
+      "count": 3
+     }
+    }
+   ],
+   "turn": [
+    {
+     "key": "gain_mana",
+     "params": {}
+    },
+    {
+     "key": "draw",
+     "params": {
+      "count": 2
+     }
+    },
+    {
+     "key": "action_phase",
+     "params": {
+      "actor": "both",
+      "allow": [
+       "play",
+       "move"
+      ],
+      "time_limit_s": 60
+     }
+    },
+    {
+     "key": "lane_combat",
+     "params": {}
+    },
+    {
+     "key": "discard_to_hand_limit",
+     "params": {}
+    },
+    {
+     "key": "end_turn",
+     "params": {}
+    }
+   ]
+  },
+  "seed": 7,
+  "rng_state": 15605416940911205577,
+  "turn_number": 62,
+  "active_seat": 1,
+  "phase": {
+   "pipeline": "turn",
+   "index": 4
+  },
+  "ready": [
+   true,
+   true
+  ],
+  "players": [
+   {
+    "origin": {
+     "origin_id": "ocean",
+     "name": "Ocean",
+     "color": "grey",
+     "icon": "circle",
+     "field_effects": [
+      {
+       "key": "free_move",
+       "params": {}
+      },
+      {
+       "key": "spell_power",
+       "params": {
+        "amount": 1
+       }
+      }
+     ],
+     "background_art_url": null
+    },
+    "deck": [],
+    "hand": [],
+    "mana": 6,
+    "max_mana": 6,
+    "mana_started": true
+   },
+   {
+    "origin": {
+     "origin_id": "mountain",
+     "name": "Mountain",
+     "color": "grey",
+     "icon": "circle",
+     "field_effects": [
+      {
+       "key": "section_hp_bonus",
+       "params": {
+        "amount": 5
+       }
+      },
+      {
+       "key": "turn_start_heal_section",
+       "params": {
+        "amount": 1
+       }
+      },
+      {
+       "key": "attacker_penalty",
+       "params": {
+        "hp": 1,
+        "dmg": 1
+       }
+      }
+     ],
+     "background_art_url": null
+    },
+    "deck": [],
+    "hand": [],
+    "mana": 6,
+    "max_mana": 6,
+    "mana_started": true
+   }
+  ],
+  "sections": [
+   [
+    {
+     "owner": 0,
+     "lane": 0,
+     "hp": 0,
+     "max_hp": 20,
+     "slots": [
+      null,
+      null,
+      null
+     ],
+     "conquered": true
+    },
+    {
+     "owner": 0,
+     "lane": 1,
+     "hp": 0,
+     "max_hp": 20,
+     "slots": [
+      null,
+      null,
+      null
+     ],
+     "conquered": true
+    },
+    {
+     "owner": 0,
+     "lane": 2,
+     "hp": 0,
+     "max_hp": 20,
+     "slots": [
+      null,
+      null,
+      null
+     ],
+     "conquered": true
+    }
+   ],
+   [
+    {
+     "owner": 1,
+     "lane": 0,
+     "hp": 25,
+     "max_hp": 25,
+     "slots": [
+      null,
+      null,
+      null
+     ],
+     "conquered": false
+    },
+    {
+     "owner": 1,
+     "lane": 1,
+     "hp": 25,
+     "max_hp": 25,
+     "slots": [
+      null,
+      null,
+      null
+     ],
+     "conquered": false
+    },
+    {
+     "owner": 1,
+     "lane": 2,
+     "hp": 25,
+     "max_hp": 25,
+     "slots": [
+      {
+       "uid": "p1-25",
+       "card": {
+        "card_id": "card-bear",
+        "name": "Bear",
+        "kind": "creature",
+        "origin_id": "mountain",
+        "mana_cost": 3,
+        "hp": 5,
+        "dmg": 3,
+        "abilities": [
+         {
+          "key": "taunt",
+          "params": {}
+         }
+        ],
+        "art_url": null
+       },
+       "owner": 1,
+       "hp": 1,
+       "max_hp": 5,
+       "dmg": 3,
+       "field_bonus": {
+        "hp": 0,
+        "dmg": 0
+       },
+       "exhausted": true,
+       "has_moved": false,
+       "features": [
+        {
+         "key": "taunt",
+         "params": {}
+        }
+       ]
+      },
+      null,
+      null
+     ],
+     "conquered": false
+    }
+   ]
+  ],
+  "status": "finished",
+  "winner": 1,
+  "end_reason": "conquered",
+  "next_uid": 3,
+  "version": 174,
+  "log": [
+   {
+    "seat": 0,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p0-1",
+     "target": {
+      "kind": "slot",
+      "seat": 0,
+      "lane": 0,
+      "slot": 0
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p0-4",
+     "target": {
+      "kind": "slot",
+      "seat": 0,
+      "lane": 0,
+      "slot": 1
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p1-1",
+     "target": {
+      "kind": "section",
+      "seat": 1,
+      "lane": 0
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p1-3",
+     "target": {
+      "kind": "creature",
+      "uid": "p0-1"
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p0-5",
+     "target": {
+      "kind": "slot",
+      "seat": 0,
+      "lane": 0,
+      "slot": 0
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p1-2",
+     "target": {
+      "kind": "section",
+      "seat": 0,
+      "lane": 0
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p0-8",
+     "target": {
+      "kind": "creature",
+      "uid": "p0-5"
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p1-4",
+     "target": {
+      "kind": "slot",
+      "seat": 1,
+      "lane": 0,
+      "slot": 0
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p1-9",
+     "target": {
+      "kind": "creature",
+      "uid": "p1-4"
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p0-7",
+     "target": {
+      "kind": "creature",
+      "uid": "p1-4"
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p0-9",
+     "target": {
+      "kind": "slot",
+      "seat": 0,
+      "lane": 0,
+      "slot": 2
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p1-6",
+     "target": {
+      "kind": "slot",
+      "seat": 1,
+      "lane": 0,
+      "slot": 0
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p0-10",
+     "target": {
+      "kind": "slot",
+      "seat": 0,
+      "lane": 0,
+      "slot": 0
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p1-7",
+     "target": {
+      "kind": "slot",
+      "seat": 1,
+      "lane": 0,
+      "slot": 0
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p1-14",
+     "target": {
+      "kind": "slot",
+      "seat": 1,
+      "lane": 0,
+      "slot": 1
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p0-11",
+     "target": {
+      "kind": "slot",
+      "seat": 0,
+      "lane": 0,
+      "slot": 1
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p1-8",
+     "target": {
+      "kind": "slot",
+      "seat": 1,
+      "lane": 0,
+      "slot": 2
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p0-16",
+     "target": {
+      "kind": "slot",
+      "seat": 0,
+      "lane": 0,
+      "slot": 0
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p0-14",
+     "target": {
+      "kind": "creature",
+      "uid": "p0-16"
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p0-17",
+     "target": {
+      "kind": "slot",
+      "seat": 0,
+      "lane": 0,
+      "slot": 1
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p1-10",
+     "target": {
+      "kind": "section",
+      "seat": 0,
+      "lane": 0
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p0-18",
+     "target": {
+      "kind": "section",
+      "seat": 0,
+      "lane": 0
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p0-19",
+     "target": {
+      "kind": "creature_to_slot",
+      "uid": "p1-8",
+      "to": {
+       "kind": "slot",
+       "seat": 1,
+       "lane": 0,
+       "slot": 0
+      }
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p1-11",
+     "target": {
+      "kind": "slot",
+      "seat": 1,
+      "lane": 0,
+      "slot": 1
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p0-20",
+     "target": {
+      "kind": "slot",
+      "seat": 0,
+      "lane": 0,
+      "slot": 0
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p1-13",
+     "target": {
+      "kind": "slot",
+      "seat": 1,
+      "lane": 0,
+      "slot": 0
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p0-21",
+     "target": {
+      "kind": "section",
+      "seat": 0,
+      "lane": 0
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p0-23",
+     "target": {
+      "kind": "slot",
+      "seat": 0,
+      "lane": 0,
+      "slot": 0
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p1-19",
+     "target": {
+      "kind": "creature_to_slot",
+      "uid": "p0-23",
+      "to": {
+       "kind": "slot",
+       "seat": 0,
+       "lane": 0,
+       "slot": 1
+      }
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p1-15",
+     "target": {
+      "kind": "slot",
+      "seat": 1,
+      "lane": 0,
+      "slot": 2
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p0-22",
+     "target": null
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p1-23",
+     "target": {
+      "kind": "slot",
+      "seat": 1,
+      "lane": 1,
+      "slot": 0
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p1-26",
+     "target": {
+      "kind": "slot",
+      "seat": 1,
+      "lane": 1,
+      "slot": 1
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p0-24",
+     "target": {
+      "kind": "slot",
+      "seat": 0,
+      "lane": 0,
+      "slot": 0
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p1-5",
+     "target": {
+      "kind": "slot",
+      "seat": 1,
+      "lane": 1,
+      "slot": 2
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p0-27",
+     "target": {
+      "kind": "slot",
+      "seat": 0,
+      "lane": 0,
+      "slot": 0
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p1-24",
+     "target": {
+      "kind": "slot",
+      "seat": 1,
+      "lane": 0,
+      "slot": 0
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p0-29",
+     "target": {
+      "kind": "creature",
+      "uid": "p1-23"
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p1-29",
+     "target": {
+      "kind": "creature",
+      "uid": "p1-26"
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p0-2",
+     "target": {
+      "kind": "slot",
+      "seat": 0,
+      "lane": 0,
+      "slot": 0
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p1-27",
+     "target": {
+      "kind": "creature",
+      "uid": "p0-2"
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p1-17",
+     "target": {
+      "kind": "slot",
+      "seat": 1,
+      "lane": 0,
+      "slot": 0
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p0-3",
+     "target": {
+      "kind": "slot",
+      "seat": 0,
+      "lane": 0,
+      "slot": 1
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p1-21",
+     "target": {
+      "kind": "slot",
+      "seat": 1,
+      "lane": 0,
+      "slot": 1
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p0-6",
+     "target": {
+      "kind": "slot",
+      "seat": 0,
+      "lane": 0,
+      "slot": 0
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "move",
+     "creature_uid": "p1-26",
+     "to": {
+      "kind": "slot",
+      "seat": 1,
+      "lane": 0,
+      "slot": 0
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "move",
+     "creature_uid": "p1-5",
+     "to": {
+      "kind": "slot",
+      "seat": 1,
+      "lane": 0,
+      "slot": 2
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p1-25",
+     "target": {
+      "kind": "slot",
+      "seat": 1,
+      "lane": 0,
+      "slot": 0
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p0-12",
+     "target": {
+      "kind": "slot",
+      "seat": 0,
+      "lane": 0,
+      "slot": 0
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "move",
+     "creature_uid": "p1-25",
+     "to": {
+      "kind": "slot",
+      "seat": 1,
+      "lane": 2,
+      "slot": 0
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   }
+  ]
+ }
+}

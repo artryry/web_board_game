@@ -2,9 +2,8 @@ from typing import Annotated, Literal
 
 from pydantic import Field, field_validator
 
-from app.engine.registry import ModuleParams, PhaseModule, phase
-
-ActionKind = Literal["play", "move", "attack"]
+from app.engine.actions import ActionKind
+from app.engine.registry import ModuleParams, PhaseActor, PhaseModule, phase
 
 
 @phase("action_phase")
@@ -30,3 +29,14 @@ class ActionPhase(PhaseModule):
             if len(set(value)) != len(value):
                 raise ValueError("actions must not repeat")
             return value
+
+    params: Params
+
+    def actor(self) -> PhaseActor:
+        return self.params.actor
+
+    def allowed(self) -> frozenset[ActionKind]:
+        return frozenset(self.params.allow)
+
+    def time_limit_s(self) -> int | None:
+        return self.params.time_limit_s

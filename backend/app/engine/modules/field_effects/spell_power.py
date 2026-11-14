@@ -12,3 +12,8 @@ class SpellPower(FieldEffectModule):
 
     class Params(ModuleParams):
         amount: Annotated[int, Field(ge=1, le=2)] = 1
+
+    params: Params
+
+    def spell_damage_bonus(self) -> int:
+        return self.params.amount

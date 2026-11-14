@@ -1,0 +1,3118 @@
+{
+ "ruleset": {
+  "schema_version": 1,
+  "board": {
+   "lanes": 1,
+   "slots_per_section": 4,
+   "section_hp": 15
+  },
+  "deck": {
+   "size": 30,
+   "max_copies": 2,
+   "allow_neutral": true
+  },
+  "mana": {
+   "start": 1,
+   "per_turn": 1,
+   "max": 10,
+   "mode": "grow"
+  },
+  "hand": {
+   "max_size": 10,
+   "second_player_bonus_card": true
+  },
+  "setup": [
+   {
+    "key": "draw",
+    "params": {
+     "count": 3
+    }
+   }
+  ],
+  "turn": [
+   {
+    "key": "gain_mana",
+    "params": {}
+   },
+   {
+    "key": "draw",
+    "params": {
+     "count": 1
+    }
+   },
+   {
+    "key": "action_phase",
+    "params": {
+     "actor": "active",
+     "allow": [
+      "play",
+      "move",
+      "attack"
+     ],
+     "time_limit_s": 90
+    }
+   },
+   {
+    "key": "end_turn",
+    "params": {}
+   }
+  ]
+ },
+ "decks": [
+  {
+   "origin": {
+    "origin_id": "arcane",
+    "name": "Arcane",
+    "color": "grey",
+    "icon": "circle",
+    "field_effects": [
+     {
+      "key": "mana_discount",
+      "params": {
+       "card_kind": "spell",
+       "amount": 1
+      }
+     }
+    ],
+    "background_art_url": null
+   },
+   "cards": [
+    {
+     "card_id": "card-hawk",
+     "name": "Hawk",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 2,
+     "hp": 2,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "ranged",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-hawk",
+     "name": "Hawk",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 2,
+     "hp": 2,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "ranged",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-hawk",
+     "name": "Hawk",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 2,
+     "hp": 2,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "ranged",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-hawk",
+     "name": "Hawk",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 2,
+     "hp": 2,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "ranged",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-bear",
+     "name": "Bear",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 3,
+     "hp": 5,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "taunt",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-bear",
+     "name": "Bear",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 3,
+     "hp": 5,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "taunt",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-bear",
+     "name": "Bear",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 3,
+     "hp": 5,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "taunt",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-bear",
+     "name": "Bear",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 3,
+     "hp": 5,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "taunt",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-wolf",
+     "name": "Wolf",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 1,
+     "hp": 3,
+     "dmg": 2,
+     "abilities": [],
+     "art_url": null
+    },
+    {
+     "card_id": "card-wolf",
+     "name": "Wolf",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 1,
+     "hp": 3,
+     "dmg": 2,
+     "abilities": [],
+     "art_url": null
+    },
+    {
+     "card_id": "card-wolf",
+     "name": "Wolf",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 1,
+     "hp": 3,
+     "dmg": 2,
+     "abilities": [],
+     "art_url": null
+    },
+    {
+     "card_id": "card-wolf",
+     "name": "Wolf",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 1,
+     "hp": 3,
+     "dmg": 2,
+     "abilities": [],
+     "art_url": null
+    },
+    {
+     "card_id": "card-martyr",
+     "name": "Martyr",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 1,
+     "hp": 1,
+     "dmg": 1,
+     "abilities": [
+      {
+       "key": "deathrattle_damage",
+       "params": {
+        "amount": 2
+       }
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-martyr",
+     "name": "Martyr",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 1,
+     "hp": 1,
+     "dmg": 1,
+     "abilities": [
+      {
+       "key": "deathrattle_damage",
+       "params": {
+        "amount": 2
+       }
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-martyr",
+     "name": "Martyr",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 1,
+     "hp": 1,
+     "dmg": 1,
+     "abilities": [
+      {
+       "key": "deathrattle_damage",
+       "params": {
+        "amount": 2
+       }
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-martyr",
+     "name": "Martyr",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 1,
+     "hp": 1,
+     "dmg": 1,
+     "abilities": [
+      {
+       "key": "deathrattle_damage",
+       "params": {
+        "amount": 2
+       }
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-leech",
+     "name": "Leech",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 2,
+     "hp": 3,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "lifesteal_section",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-leech",
+     "name": "Leech",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 2,
+     "hp": 3,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "lifesteal_section",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-leech",
+     "name": "Leech",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 2,
+     "hp": 3,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "lifesteal_section",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-leech",
+     "name": "Leech",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 2,
+     "hp": 3,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "lifesteal_section",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-deal_damage",
+     "name": "Deal Damage",
+     "kind": "spell",
+     "origin_id": "forest",
+     "mana_cost": 1,
+     "hp": null,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "deal_damage",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-deal_damage",
+     "name": "Deal Damage",
+     "kind": "spell",
+     "origin_id": "forest",
+     "mana_cost": 1,
+     "hp": null,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "deal_damage",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-deal_damage",
+     "name": "Deal Damage",
+     "kind": "spell",
+     "origin_id": "forest",
+     "mana_cost": 1,
+     "hp": null,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "deal_damage",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-deal_damage",
+     "name": "Deal Damage",
+     "kind": "spell",
+     "origin_id": "forest",
+     "mana_cost": 1,
+     "hp": null,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "deal_damage",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    }
+   ]
+  },
+  {
+   "origin": {
+    "origin_id": "mountain",
+    "name": "Mountain",
+    "color": "grey",
+    "icon": "circle",
+    "field_effects": [
+     {
+      "key": "section_hp_bonus",
+      "params": {
+       "amount": 5
+      }
+     },
+     {
+      "key": "turn_start_heal_section",
+      "params": {
+       "amount": 1
+      }
+     },
+     {
+      "key": "attacker_penalty",
+      "params": {
+       "hp": 1,
+       "dmg": 1
+      }
+     }
+    ],
+    "background_art_url": null
+   },
+   "cards": [
+    {
+     "card_id": "card-hawk",
+     "name": "Hawk",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 2,
+     "hp": 2,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "ranged",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-hawk",
+     "name": "Hawk",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 2,
+     "hp": 2,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "ranged",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-hawk",
+     "name": "Hawk",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 2,
+     "hp": 2,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "ranged",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-hawk",
+     "name": "Hawk",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 2,
+     "hp": 2,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "ranged",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-bear",
+     "name": "Bear",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 3,
+     "hp": 5,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "taunt",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-bear",
+     "name": "Bear",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 3,
+     "hp": 5,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "taunt",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-bear",
+     "name": "Bear",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 3,
+     "hp": 5,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "taunt",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-bear",
+     "name": "Bear",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 3,
+     "hp": 5,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "taunt",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-wolf",
+     "name": "Wolf",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 1,
+     "hp": 3,
+     "dmg": 2,
+     "abilities": [],
+     "art_url": null
+    },
+    {
+     "card_id": "card-wolf",
+     "name": "Wolf",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 1,
+     "hp": 3,
+     "dmg": 2,
+     "abilities": [],
+     "art_url": null
+    },
+    {
+     "card_id": "card-wolf",
+     "name": "Wolf",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 1,
+     "hp": 3,
+     "dmg": 2,
+     "abilities": [],
+     "art_url": null
+    },
+    {
+     "card_id": "card-wolf",
+     "name": "Wolf",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 1,
+     "hp": 3,
+     "dmg": 2,
+     "abilities": [],
+     "art_url": null
+    },
+    {
+     "card_id": "card-martyr",
+     "name": "Martyr",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 1,
+     "hp": 1,
+     "dmg": 1,
+     "abilities": [
+      {
+       "key": "deathrattle_damage",
+       "params": {
+        "amount": 2
+       }
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-martyr",
+     "name": "Martyr",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 1,
+     "hp": 1,
+     "dmg": 1,
+     "abilities": [
+      {
+       "key": "deathrattle_damage",
+       "params": {
+        "amount": 2
+       }
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-martyr",
+     "name": "Martyr",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 1,
+     "hp": 1,
+     "dmg": 1,
+     "abilities": [
+      {
+       "key": "deathrattle_damage",
+       "params": {
+        "amount": 2
+       }
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-martyr",
+     "name": "Martyr",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 1,
+     "hp": 1,
+     "dmg": 1,
+     "abilities": [
+      {
+       "key": "deathrattle_damage",
+       "params": {
+        "amount": 2
+       }
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-leech",
+     "name": "Leech",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 2,
+     "hp": 3,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "lifesteal_section",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-leech",
+     "name": "Leech",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 2,
+     "hp": 3,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "lifesteal_section",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-leech",
+     "name": "Leech",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 2,
+     "hp": 3,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "lifesteal_section",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-leech",
+     "name": "Leech",
+     "kind": "creature",
+     "origin_id": "forest",
+     "mana_cost": 2,
+     "hp": 3,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "lifesteal_section",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-deal_damage",
+     "name": "Deal Damage",
+     "kind": "spell",
+     "origin_id": "forest",
+     "mana_cost": 1,
+     "hp": null,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "deal_damage",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-deal_damage",
+     "name": "Deal Damage",
+     "kind": "spell",
+     "origin_id": "forest",
+     "mana_cost": 1,
+     "hp": null,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "deal_damage",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-deal_damage",
+     "name": "Deal Damage",
+     "kind": "spell",
+     "origin_id": "forest",
+     "mana_cost": 1,
+     "hp": null,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "deal_damage",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    },
+    {
+     "card_id": "card-deal_damage",
+     "name": "Deal Damage",
+     "kind": "spell",
+     "origin_id": "forest",
+     "mana_cost": 1,
+     "hp": null,
+     "dmg": 2,
+     "abilities": [
+      {
+       "key": "deal_damage",
+       "params": {}
+      }
+     ],
+     "art_url": null
+    }
+   ]
+  }
+ ],
+ "seed": 3,
+ "actions": [
+  {
+   "seat": 0,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p0-4",
+    "target": {
+     "kind": "slot",
+     "seat": 0,
+     "lane": 0,
+     "slot": 0
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p1-2",
+    "target": {
+     "kind": "slot",
+     "seat": 1,
+     "lane": 0,
+     "slot": 0
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p0-1",
+    "target": {
+     "kind": "slot",
+     "seat": 0,
+     "lane": 0,
+     "slot": 1
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "attack",
+    "creature_uid": "p0-4",
+    "target": {
+     "kind": "creature",
+     "uid": "p1-2"
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p1-3",
+    "target": {
+     "kind": "slot",
+     "seat": 1,
+     "lane": 0,
+     "slot": 1
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p1-5",
+    "target": {
+     "kind": "slot",
+     "seat": 1,
+     "lane": 0,
+     "slot": 2
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "attack",
+    "creature_uid": "p1-2",
+    "target": {
+     "kind": "creature",
+     "uid": "p0-4"
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p0-2",
+    "target": {
+     "kind": "slot",
+     "seat": 0,
+     "lane": 0,
+     "slot": 0
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p0-6",
+    "target": {
+     "kind": "creature",
+     "uid": "p1-3"
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "attack",
+    "creature_uid": "p0-1",
+    "target": {
+     "kind": "creature",
+     "uid": "p1-5"
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p1-1",
+    "target": {
+     "kind": "slot",
+     "seat": 1,
+     "lane": 0,
+     "slot": 0
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "attack",
+    "creature_uid": "p1-5",
+    "target": {
+     "kind": "creature",
+     "uid": "p0-2"
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p0-3",
+    "target": {
+     "kind": "slot",
+     "seat": 0,
+     "lane": 0,
+     "slot": 2
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p0-7",
+    "target": {
+     "kind": "slot",
+     "seat": 0,
+     "lane": 0,
+     "slot": 3
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "attack",
+    "creature_uid": "p0-2",
+    "target": {
+     "kind": "creature",
+     "uid": "p1-1"
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "attack",
+    "creature_uid": "p0-1",
+    "target": {
+     "kind": "creature",
+     "uid": "p1-1"
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p1-4",
+    "target": {
+     "kind": "slot",
+     "seat": 1,
+     "lane": 0,
+     "slot": 1
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "attack",
+    "creature_uid": "p1-1",
+    "target": {
+     "kind": "creature",
+     "uid": "p0-3"
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p0-5",
+    "target": {
+     "kind": "slot",
+     "seat": 0,
+     "lane": 0,
+     "slot": 0
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p0-8",
+    "target": {
+     "kind": "slot",
+     "seat": 0,
+     "lane": 0,
+     "slot": 1
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "attack",
+    "creature_uid": "p0-7",
+    "target": {
+     "kind": "creature",
+     "uid": "p1-4"
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p1-6",
+    "target": {
+     "kind": "slot",
+     "seat": 1,
+     "lane": 0,
+     "slot": 0
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p1-7",
+    "target": {
+     "kind": "slot",
+     "seat": 1,
+     "lane": 0,
+     "slot": 2
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "attack",
+    "creature_uid": "p1-4",
+    "target": {
+     "kind": "creature",
+     "uid": "p0-5"
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p0-9",
+    "target": {
+     "kind": "slot",
+     "seat": 0,
+     "lane": 0,
+     "slot": 2
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "attack",
+    "creature_uid": "p0-5",
+    "target": {
+     "kind": "creature",
+     "uid": "p1-6"
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "attack",
+    "creature_uid": "p0-8",
+    "target": {
+     "kind": "creature",
+     "uid": "p1-6"
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p1-8",
+    "target": {
+     "kind": "slot",
+     "seat": 1,
+     "lane": 0,
+     "slot": 3
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p1-10",
+    "target": {
+     "kind": "creature",
+     "uid": "p0-5"
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "attack",
+    "creature_uid": "p1-6",
+    "target": {
+     "kind": "creature",
+     "uid": "p0-8"
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p1-9",
+    "target": {
+     "kind": "slot",
+     "seat": 1,
+     "lane": 0,
+     "slot": 0
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "attack",
+    "creature_uid": "p1-4",
+    "target": {
+     "kind": "creature",
+     "uid": "p0-9"
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "attack",
+    "creature_uid": "p1-7",
+    "target": {
+     "kind": "creature",
+     "uid": "p0-9"
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p0-10",
+    "target": {
+     "kind": "slot",
+     "seat": 0,
+     "lane": 0,
+     "slot": 0
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p1-11",
+    "target": {
+     "kind": "slot",
+     "seat": 1,
+     "lane": 0,
+     "slot": 1
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "attack",
+    "creature_uid": "p1-9",
+    "target": {
+     "kind": "creature",
+     "uid": "p0-10"
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "attack",
+    "creature_uid": "p1-7",
+    "target": {
+     "kind": "section",
+     "seat": 0,
+     "lane": 0
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "attack",
+    "creature_uid": "p1-8",
+    "target": {
+     "kind": "section",
+     "seat": 0,
+     "lane": 0
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p0-11",
+    "target": {
+     "kind": "slot",
+     "seat": 0,
+     "lane": 0,
+     "slot": 0
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p1-12",
+    "target": {
+     "kind": "slot",
+     "seat": 1,
+     "lane": 0,
+     "slot": 0
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "attack",
+    "creature_uid": "p1-11",
+    "target": {
+     "kind": "creature",
+     "uid": "p0-11"
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "attack",
+    "creature_uid": "p1-7",
+    "target": {
+     "kind": "section",
+     "seat": 0,
+     "lane": 0
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "attack",
+    "creature_uid": "p1-8",
+    "target": {
+     "kind": "section",
+     "seat": 0,
+     "lane": 0
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p0-12",
+    "target": {
+     "kind": "slot",
+     "seat": 0,
+     "lane": 0,
+     "slot": 0
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "attack",
+    "creature_uid": "p1-12",
+    "target": {
+     "kind": "creature",
+     "uid": "p0-12"
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p1-13",
+    "target": {
+     "kind": "slot",
+     "seat": 1,
+     "lane": 0,
+     "slot": 0
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "attack",
+    "creature_uid": "p1-11",
+    "target": {
+     "kind": "creature",
+     "uid": "p0-12"
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "attack",
+    "creature_uid": "p1-7",
+    "target": {
+     "kind": "creature",
+     "uid": "p0-12"
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "attack",
+    "creature_uid": "p1-8",
+    "target": {
+     "kind": "section",
+     "seat": 0,
+     "lane": 0
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p0-13",
+    "target": {
+     "kind": "slot",
+     "seat": 0,
+     "lane": 0,
+     "slot": 0
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p1-14",
+    "target": {
+     "kind": "creature",
+     "uid": "p0-13"
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "attack",
+    "creature_uid": "p1-13",
+    "target": {
+     "kind": "creature",
+     "uid": "p0-13"
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "attack",
+    "creature_uid": "p1-8",
+    "target": {
+     "kind": "section",
+     "seat": 0,
+     "lane": 0
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p0-14",
+    "target": {
+     "kind": "slot",
+     "seat": 0,
+     "lane": 0,
+     "slot": 0
+    }
+   }
+  },
+  {
+   "seat": 0,
+   "action": {
+    "type": "end_phase"
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "play_card",
+    "card_uid": "p1-15",
+    "target": {
+     "kind": "slot",
+     "seat": 1,
+     "lane": 0,
+     "slot": 1
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "attack",
+    "creature_uid": "p1-13",
+    "target": {
+     "kind": "creature",
+     "uid": "p0-14"
+    }
+   }
+  },
+  {
+   "seat": 1,
+   "action": {
+    "type": "attack",
+    "creature_uid": "p1-8",
+    "target": {
+     "kind": "section",
+     "seat": 0,
+     "lane": 0
+    }
+   }
+  }
+ ],
+ "final_state": {
+  "ruleset": {
+   "schema_version": 1,
+   "board": {
+    "lanes": 1,
+    "slots_per_section": 4,
+    "section_hp": 15
+   },
+   "deck": {
+    "size": 30,
+    "max_copies": 2,
+    "allow_neutral": true
+   },
+   "mana": {
+    "start": 1,
+    "per_turn": 1,
+    "max": 10,
+    "mode": "grow"
+   },
+   "hand": {
+    "max_size": 10,
+    "second_player_bonus_card": true
+   },
+   "setup": [
+    {
+     "key": "draw",
+     "params": {
+      "count": 3
+     }
+    }
+   ],
+   "turn": [
+    {
+     "key": "gain_mana",
+     "params": {}
+    },
+    {
+     "key": "draw",
+     "params": {
+      "count": 1
+     }
+    },
+    {
+     "key": "action_phase",
+     "params": {
+      "actor": "active",
+      "allow": [
+       "play",
+       "move",
+       "attack"
+      ],
+      "time_limit_s": 90
+     }
+    },
+    {
+     "key": "end_turn",
+     "params": {}
+    }
+   ]
+  },
+  "seed": 3,
+  "rng_state": 7924047624999685065,
+  "turn_number": 22,
+  "active_seat": 1,
+  "phase": {
+   "pipeline": "turn",
+   "index": 2
+  },
+  "ready": [
+   false,
+   false
+  ],
+  "players": [
+   {
+    "origin": {
+     "origin_id": "arcane",
+     "name": "Arcane",
+     "color": "grey",
+     "icon": "circle",
+     "field_effects": [
+      {
+       "key": "mana_discount",
+       "params": {
+        "card_kind": "spell",
+        "amount": 1
+       }
+      }
+     ],
+     "background_art_url": null
+    },
+    "deck": [
+     {
+      "uid": "p0-15",
+      "card": {
+       "card_id": "card-deal_damage",
+       "name": "Deal Damage",
+       "kind": "spell",
+       "origin_id": "forest",
+       "mana_cost": 1,
+       "hp": null,
+       "dmg": 2,
+       "abilities": [
+        {
+         "key": "deal_damage",
+         "params": {}
+        }
+       ],
+       "art_url": null
+      }
+     },
+     {
+      "uid": "p0-16",
+      "card": {
+       "card_id": "card-wolf",
+       "name": "Wolf",
+       "kind": "creature",
+       "origin_id": "forest",
+       "mana_cost": 1,
+       "hp": 3,
+       "dmg": 2,
+       "abilities": [],
+       "art_url": null
+      }
+     },
+     {
+      "uid": "p0-17",
+      "card": {
+       "card_id": "card-bear",
+       "name": "Bear",
+       "kind": "creature",
+       "origin_id": "forest",
+       "mana_cost": 3,
+       "hp": 5,
+       "dmg": 2,
+       "abilities": [
+        {
+         "key": "taunt",
+         "params": {}
+        }
+       ],
+       "art_url": null
+      }
+     },
+     {
+      "uid": "p0-18",
+      "card": {
+       "card_id": "card-martyr",
+       "name": "Martyr",
+       "kind": "creature",
+       "origin_id": "forest",
+       "mana_cost": 1,
+       "hp": 1,
+       "dmg": 1,
+       "abilities": [
+        {
+         "key": "deathrattle_damage",
+         "params": {
+          "amount": 2
+         }
+        }
+       ],
+       "art_url": null
+      }
+     },
+     {
+      "uid": "p0-19",
+      "card": {
+       "card_id": "card-hawk",
+       "name": "Hawk",
+       "kind": "creature",
+       "origin_id": "forest",
+       "mana_cost": 2,
+       "hp": 2,
+       "dmg": 2,
+       "abilities": [
+        {
+         "key": "ranged",
+         "params": {}
+        }
+       ],
+       "art_url": null
+      }
+     },
+     {
+      "uid": "p0-20",
+      "card": {
+       "card_id": "card-bear",
+       "name": "Bear",
+       "kind": "creature",
+       "origin_id": "forest",
+       "mana_cost": 3,
+       "hp": 5,
+       "dmg": 2,
+       "abilities": [
+        {
+         "key": "taunt",
+         "params": {}
+        }
+       ],
+       "art_url": null
+      }
+     },
+     {
+      "uid": "p0-21",
+      "card": {
+       "card_id": "card-martyr",
+       "name": "Martyr",
+       "kind": "creature",
+       "origin_id": "forest",
+       "mana_cost": 1,
+       "hp": 1,
+       "dmg": 1,
+       "abilities": [
+        {
+         "key": "deathrattle_damage",
+         "params": {
+          "amount": 2
+         }
+        }
+       ],
+       "art_url": null
+      }
+     },
+     {
+      "uid": "p0-22",
+      "card": {
+       "card_id": "card-leech",
+       "name": "Leech",
+       "kind": "creature",
+       "origin_id": "forest",
+       "mana_cost": 2,
+       "hp": 3,
+       "dmg": 2,
+       "abilities": [
+        {
+         "key": "lifesteal_section",
+         "params": {}
+        }
+       ],
+       "art_url": null
+      }
+     },
+     {
+      "uid": "p0-23",
+      "card": {
+       "card_id": "card-deal_damage",
+       "name": "Deal Damage",
+       "kind": "spell",
+       "origin_id": "forest",
+       "mana_cost": 1,
+       "hp": null,
+       "dmg": 2,
+       "abilities": [
+        {
+         "key": "deal_damage",
+         "params": {}
+        }
+       ],
+       "art_url": null
+      }
+     },
+     {
+      "uid": "p0-24",
+      "card": {
+       "card_id": "card-deal_damage",
+       "name": "Deal Damage",
+       "kind": "spell",
+       "origin_id": "forest",
+       "mana_cost": 1,
+       "hp": null,
+       "dmg": 2,
+       "abilities": [
+        {
+         "key": "deal_damage",
+         "params": {}
+        }
+       ],
+       "art_url": null
+      }
+     }
+    ],
+    "hand": [],
+    "mana": 8,
+    "max_mana": 10,
+    "mana_started": true
+   },
+   {
+    "origin": {
+     "origin_id": "mountain",
+     "name": "Mountain",
+     "color": "grey",
+     "icon": "circle",
+     "field_effects": [
+      {
+       "key": "section_hp_bonus",
+       "params": {
+        "amount": 5
+       }
+      },
+      {
+       "key": "turn_start_heal_section",
+       "params": {
+        "amount": 1
+       }
+      },
+      {
+       "key": "attacker_penalty",
+       "params": {
+        "hp": 1,
+        "dmg": 1
+       }
+      }
+     ],
+     "background_art_url": null
+    },
+    "deck": [
+     {
+      "uid": "p1-16",
+      "card": {
+       "card_id": "card-deal_damage",
+       "name": "Deal Damage",
+       "kind": "spell",
+       "origin_id": "forest",
+       "mana_cost": 1,
+       "hp": null,
+       "dmg": 2,
+       "abilities": [
+        {
+         "key": "deal_damage",
+         "params": {}
+        }
+       ],
+       "art_url": null
+      }
+     },
+     {
+      "uid": "p1-17",
+      "card": {
+       "card_id": "card-hawk",
+       "name": "Hawk",
+       "kind": "creature",
+       "origin_id": "forest",
+       "mana_cost": 2,
+       "hp": 2,
+       "dmg": 2,
+       "abilities": [
+        {
+         "key": "ranged",
+         "params": {}
+        }
+       ],
+       "art_url": null
+      }
+     },
+     {
+      "uid": "p1-18",
+      "card": {
+       "card_id": "card-wolf",
+       "name": "Wolf",
+       "kind": "creature",
+       "origin_id": "forest",
+       "mana_cost": 1,
+       "hp": 3,
+       "dmg": 2,
+       "abilities": [],
+       "art_url": null
+      }
+     },
+     {
+      "uid": "p1-19",
+      "card": {
+       "card_id": "card-leech",
+       "name": "Leech",
+       "kind": "creature",
+       "origin_id": "forest",
+       "mana_cost": 2,
+       "hp": 3,
+       "dmg": 2,
+       "abilities": [
+        {
+         "key": "lifesteal_section",
+         "params": {}
+        }
+       ],
+       "art_url": null
+      }
+     },
+     {
+      "uid": "p1-20",
+      "card": {
+       "card_id": "card-leech",
+       "name": "Leech",
+       "kind": "creature",
+       "origin_id": "forest",
+       "mana_cost": 2,
+       "hp": 3,
+       "dmg": 2,
+       "abilities": [
+        {
+         "key": "lifesteal_section",
+         "params": {}
+        }
+       ],
+       "art_url": null
+      }
+     },
+     {
+      "uid": "p1-21",
+      "card": {
+       "card_id": "card-wolf",
+       "name": "Wolf",
+       "kind": "creature",
+       "origin_id": "forest",
+       "mana_cost": 1,
+       "hp": 3,
+       "dmg": 2,
+       "abilities": [],
+       "art_url": null
+      }
+     },
+     {
+      "uid": "p1-22",
+      "card": {
+       "card_id": "card-deal_damage",
+       "name": "Deal Damage",
+       "kind": "spell",
+       "origin_id": "forest",
+       "mana_cost": 1,
+       "hp": null,
+       "dmg": 2,
+       "abilities": [
+        {
+         "key": "deal_damage",
+         "params": {}
+        }
+       ],
+       "art_url": null
+      }
+     },
+     {
+      "uid": "p1-23",
+      "card": {
+       "card_id": "card-martyr",
+       "name": "Martyr",
+       "kind": "creature",
+       "origin_id": "forest",
+       "mana_cost": 1,
+       "hp": 1,
+       "dmg": 1,
+       "abilities": [
+        {
+         "key": "deathrattle_damage",
+         "params": {
+          "amount": 2
+         }
+        }
+       ],
+       "art_url": null
+      }
+     },
+     {
+      "uid": "p1-24",
+      "card": {
+       "card_id": "card-hawk",
+       "name": "Hawk",
+       "kind": "creature",
+       "origin_id": "forest",
+       "mana_cost": 2,
+       "hp": 2,
+       "dmg": 2,
+       "abilities": [
+        {
+         "key": "ranged",
+         "params": {}
+        }
+       ],
+       "art_url": null
+      }
+     }
+    ],
+    "hand": [],
+    "mana": 9,
+    "max_mana": 10,
+    "mana_started": true
+   }
+  ],
+  "sections": [
+   [
+    {
+     "owner": 0,
+     "lane": 0,
+     "hp": 0,
+     "max_hp": 15,
+     "slots": [
+      null,
+      null,
+      null,
+      null
+     ],
+     "conquered": true
+    }
+   ],
+   [
+    {
+     "owner": 1,
+     "lane": 0,
+     "hp": 20,
+     "max_hp": 20,
+     "slots": [
+      {
+       "uid": "p1-13",
+       "card": {
+        "card_id": "card-bear",
+        "name": "Bear",
+        "kind": "creature",
+        "origin_id": "forest",
+        "mana_cost": 3,
+        "hp": 5,
+        "dmg": 2,
+        "abilities": [
+         {
+          "key": "taunt",
+          "params": {}
+         }
+        ],
+        "art_url": null
+       },
+       "owner": 1,
+       "hp": 1,
+       "max_hp": 5,
+       "dmg": 2,
+       "field_bonus": {
+        "hp": 0,
+        "dmg": 0
+       },
+       "exhausted": true,
+       "has_moved": false,
+       "features": [
+        {
+         "key": "taunt",
+         "params": {}
+        }
+       ]
+      },
+      {
+       "uid": "p1-15",
+       "card": {
+        "card_id": "card-martyr",
+        "name": "Martyr",
+        "kind": "creature",
+        "origin_id": "forest",
+        "mana_cost": 1,
+        "hp": 1,
+        "dmg": 1,
+        "abilities": [
+         {
+          "key": "deathrattle_damage",
+          "params": {
+           "amount": 2
+          }
+         }
+        ],
+        "art_url": null
+       },
+       "owner": 1,
+       "hp": 1,
+       "max_hp": 1,
+       "dmg": 1,
+       "field_bonus": {
+        "hp": 0,
+        "dmg": 0
+       },
+       "exhausted": true,
+       "has_moved": false,
+       "features": [
+        {
+         "key": "deathrattle_damage",
+         "params": {
+          "amount": 2
+         }
+        }
+       ]
+      },
+      null,
+      {
+       "uid": "p1-8",
+       "card": {
+        "card_id": "card-hawk",
+        "name": "Hawk",
+        "kind": "creature",
+        "origin_id": "forest",
+        "mana_cost": 2,
+        "hp": 2,
+        "dmg": 2,
+        "abilities": [
+         {
+          "key": "ranged",
+          "params": {}
+         }
+        ],
+        "art_url": null
+       },
+       "owner": 1,
+       "hp": 2,
+       "max_hp": 2,
+       "dmg": 2,
+       "field_bonus": {
+        "hp": 0,
+        "dmg": 0
+       },
+       "exhausted": true,
+       "has_moved": false,
+       "features": [
+        {
+         "key": "ranged",
+         "params": {}
+        }
+       ]
+      }
+     ],
+     "conquered": false
+    }
+   ]
+  ],
+  "status": "finished",
+  "winner": 1,
+  "end_reason": "conquered",
+  "next_uid": 1,
+  "version": 78,
+  "log": [
+   {
+    "seat": 0,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p0-4",
+     "target": {
+      "kind": "slot",
+      "seat": 0,
+      "lane": 0,
+      "slot": 0
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p1-2",
+     "target": {
+      "kind": "slot",
+      "seat": 1,
+      "lane": 0,
+      "slot": 0
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p0-1",
+     "target": {
+      "kind": "slot",
+      "seat": 0,
+      "lane": 0,
+      "slot": 1
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "attack",
+     "creature_uid": "p0-4",
+     "target": {
+      "kind": "creature",
+      "uid": "p1-2"
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p1-3",
+     "target": {
+      "kind": "slot",
+      "seat": 1,
+      "lane": 0,
+      "slot": 1
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p1-5",
+     "target": {
+      "kind": "slot",
+      "seat": 1,
+      "lane": 0,
+      "slot": 2
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "attack",
+     "creature_uid": "p1-2",
+     "target": {
+      "kind": "creature",
+      "uid": "p0-4"
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p0-2",
+     "target": {
+      "kind": "slot",
+      "seat": 0,
+      "lane": 0,
+      "slot": 0
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p0-6",
+     "target": {
+      "kind": "creature",
+      "uid": "p1-3"
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "attack",
+     "creature_uid": "p0-1",
+     "target": {
+      "kind": "creature",
+      "uid": "p1-5"
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p1-1",
+     "target": {
+      "kind": "slot",
+      "seat": 1,
+      "lane": 0,
+      "slot": 0
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "attack",
+     "creature_uid": "p1-5",
+     "target": {
+      "kind": "creature",
+      "uid": "p0-2"
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p0-3",
+     "target": {
+      "kind": "slot",
+      "seat": 0,
+      "lane": 0,
+      "slot": 2
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p0-7",
+     "target": {
+      "kind": "slot",
+      "seat": 0,
+      "lane": 0,
+      "slot": 3
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "attack",
+     "creature_uid": "p0-2",
+     "target": {
+      "kind": "creature",
+      "uid": "p1-1"
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "attack",
+     "creature_uid": "p0-1",
+     "target": {
+      "kind": "creature",
+      "uid": "p1-1"
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p1-4",
+     "target": {
+      "kind": "slot",
+      "seat": 1,
+      "lane": 0,
+      "slot": 1
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "attack",
+     "creature_uid": "p1-1",
+     "target": {
+      "kind": "creature",
+      "uid": "p0-3"
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p0-5",
+     "target": {
+      "kind": "slot",
+      "seat": 0,
+      "lane": 0,
+      "slot": 0
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p0-8",
+     "target": {
+      "kind": "slot",
+      "seat": 0,
+      "lane": 0,
+      "slot": 1
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "attack",
+     "creature_uid": "p0-7",
+     "target": {
+      "kind": "creature",
+      "uid": "p1-4"
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p1-6",
+     "target": {
+      "kind": "slot",
+      "seat": 1,
+      "lane": 0,
+      "slot": 0
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p1-7",
+     "target": {
+      "kind": "slot",
+      "seat": 1,
+      "lane": 0,
+      "slot": 2
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "attack",
+     "creature_uid": "p1-4",
+     "target": {
+      "kind": "creature",
+      "uid": "p0-5"
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p0-9",
+     "target": {
+      "kind": "slot",
+      "seat": 0,
+      "lane": 0,
+      "slot": 2
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "attack",
+     "creature_uid": "p0-5",
+     "target": {
+      "kind": "creature",
+      "uid": "p1-6"
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "attack",
+     "creature_uid": "p0-8",
+     "target": {
+      "kind": "creature",
+      "uid": "p1-6"
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p1-8",
+     "target": {
+      "kind": "slot",
+      "seat": 1,
+      "lane": 0,
+      "slot": 3
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p1-10",
+     "target": {
+      "kind": "creature",
+      "uid": "p0-5"
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "attack",
+     "creature_uid": "p1-6",
+     "target": {
+      "kind": "creature",
+      "uid": "p0-8"
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p1-9",
+     "target": {
+      "kind": "slot",
+      "seat": 1,
+      "lane": 0,
+      "slot": 0
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "attack",
+     "creature_uid": "p1-4",
+     "target": {
+      "kind": "creature",
+      "uid": "p0-9"
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "attack",
+     "creature_uid": "p1-7",
+     "target": {
+      "kind": "creature",
+      "uid": "p0-9"
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p0-10",
+     "target": {
+      "kind": "slot",
+      "seat": 0,
+      "lane": 0,
+      "slot": 0
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p1-11",
+     "target": {
+      "kind": "slot",
+      "seat": 1,
+      "lane": 0,
+      "slot": 1
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "attack",
+     "creature_uid": "p1-9",
+     "target": {
+      "kind": "creature",
+      "uid": "p0-10"
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "attack",
+     "creature_uid": "p1-7",
+     "target": {
+      "kind": "section",
+      "seat": 0,
+      "lane": 0
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "attack",
+     "creature_uid": "p1-8",
+     "target": {
+      "kind": "section",
+      "seat": 0,
+      "lane": 0
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p0-11",
+     "target": {
+      "kind": "slot",
+      "seat": 0,
+      "lane": 0,
+      "slot": 0
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p1-12",
+     "target": {
+      "kind": "slot",
+      "seat": 1,
+      "lane": 0,
+      "slot": 0
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "attack",
+     "creature_uid": "p1-11",
+     "target": {
+      "kind": "creature",
+      "uid": "p0-11"
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "attack",
+     "creature_uid": "p1-7",
+     "target": {
+      "kind": "section",
+      "seat": 0,
+      "lane": 0
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "attack",
+     "creature_uid": "p1-8",
+     "target": {
+      "kind": "section",
+      "seat": 0,
+      "lane": 0
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p0-12",
+     "target": {
+      "kind": "slot",
+      "seat": 0,
+      "lane": 0,
+      "slot": 0
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "attack",
+     "creature_uid": "p1-12",
+     "target": {
+      "kind": "creature",
+      "uid": "p0-12"
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p1-13",
+     "target": {
+      "kind": "slot",
+      "seat": 1,
+      "lane": 0,
+      "slot": 0
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "attack",
+     "creature_uid": "p1-11",
+     "target": {
+      "kind": "creature",
+      "uid": "p0-12"
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "attack",
+     "creature_uid": "p1-7",
+     "target": {
+      "kind": "creature",
+      "uid": "p0-12"
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "attack",
+     "creature_uid": "p1-8",
+     "target": {
+      "kind": "section",
+      "seat": 0,
+      "lane": 0
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p0-13",
+     "target": {
+      "kind": "slot",
+      "seat": 0,
+      "lane": 0,
+      "slot": 0
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p1-14",
+     "target": {
+      "kind": "creature",
+      "uid": "p0-13"
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "attack",
+     "creature_uid": "p1-13",
+     "target": {
+      "kind": "creature",
+      "uid": "p0-13"
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "attack",
+     "creature_uid": "p1-8",
+     "target": {
+      "kind": "section",
+      "seat": 0,
+      "lane": 0
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p0-14",
+     "target": {
+      "kind": "slot",
+      "seat": 0,
+      "lane": 0,
+      "slot": 0
+     }
+    }
+   },
+   {
+    "seat": 0,
+    "action": {
+     "type": "end_phase"
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "play_card",
+     "card_uid": "p1-15",
+     "target": {
+      "kind": "slot",
+      "seat": 1,
+      "lane": 0,
+      "slot": 1
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "attack",
+     "creature_uid": "p1-13",
+     "target": {
+      "kind": "creature",
+      "uid": "p0-14"
+     }
+    }
+   },
+   {
+    "seat": 1,
+    "action": {
+     "type": "attack",
+     "creature_uid": "p1-8",
+     "target": {
+      "kind": "section",
+      "seat": 0,
+      "lane": 0
+     }
+    }
+   }
+  ]
+ }
+}

@@ -6,3 +6,6 @@ class Taunt(FeatureModule):
     name = "Taunt"
     description = "Enemies in this lane must attack this creature first."
     cost_spec = CostSpec(base=2)
+
+    def must_be_attacked_first(self) -> bool:
+        return True

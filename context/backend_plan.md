@@ -6,7 +6,7 @@ The backend for the card-game constructor described in [project_description.md](
 
 | Topic | Decision |
 |---|---|
-| Win condition | Every field section has HP. An unblocked attacker damages the enemy section in its lane. A player wins when all enemy sections reach 0 HP, or when the opponent surrenders. |
+| Win condition | Every field section has HP. An unblocked attacker damages the enemy section in its lane. A player wins when all enemy sections reach 0 HP, or when the opponent surrenders. When neither player has a card left and no creature is on the board, the player with more sections left wins. Both of those can end in a draw (§7.5). |
 | Rules ("turn flow") | An ordered **phase pipeline** of parameterized modules, stored as JSON. No visual scripting. |
 | Lanes | **Set in the rules**: 1–5 lanes, default 3. Each player has one section per lane, so the default board has 6 sections. |
 | Origins / field types | **Users create origins the same way they create cards.** An origin has a name, look and field effects chosen from modules. A few system origins are seeded as templates. |
@@ -56,6 +56,11 @@ M4 (rulesets, validation, share and import) is done (2026-11-12):
 - `share_codes.ruleset_id`: rulesets can be shared, previewed and imported like decks and groups (§8).
 - Added with F3 (2026-11-13): `mana.mode` (`grow` or `restore`, §6 and §7.3). Definitions stored before it read as `grow`; no data migration.
 
+M5 (engine core) is done (2026-11-14):
+- `engine/` has the state, snapshots, seeded RNG, actions, events, `EngineContext`, combat, targeting, legality, views and the runner (§3, §7). Every starter module has its behaviour hooks.
+- `attacker_penalty` replaced `stat_bonus` with `applies_to: enemy` (§5). A data migration converted stored origins.
+- `tests/engine/` has unit tests per module, board-size games, golden replays (`tests/fixtures/replays/`) and random games (§12).
+
 ## 2. Stack
 
 | Concern | Choice |
@@ -96,12 +101,19 @@ backend/
                        client_logs
     storage/           R2 (S3 API) client, presigned PUT, object key naming
     engine/            PURE game logic: no DB, no Redis, no network (see §7)
-      registry.py      module registry + decorators
-      state.py         GameState, PlayerState, Section, CreatureInstance
-      actions.py       Action types
-      events.py        Event types
-      runner.py        start_game / legal_actions / apply_action / view_for
-      rng.py           seeded deterministic RNG
+      registry.py      module registry, decorators, the hook base classes
+      seats.py         the two seats
+      snapshots.py     CardSnapshot, OriginSnapshot, DeckSnapshot (what start_game takes)
+      state.py         GameState, PlayerState, Section, CreatureInstance, CardInstance
+      rng.py           seeded deterministic RNG (SplitMix64)
+      actions.py       Action and target types, IllegalAction
+      events.py        Event types, events_for
+      context.py       EngineContext: the only way the runner and modules change the state
+      combat.py        attacks, deaths, the end of the game
+      targets.py       who and what can be targeted
+      legality.py      legal_actions and the checks behind IllegalAction
+      views.py         PlayerView, view_for
+      runner.py        start_game / apply_action / replay (and re-exports legal_actions, view_for)
       cost.py          cost-suggestion formula
       modules/
         phases/        draw, gain_mana, action_phase, lane_combat, end_turn, ...
@@ -176,7 +188,7 @@ rulesets     id PK, owner_id FK users NULL (ON DELETE CASCADE; NULL = system rul
 
 games        id PK, room_code, ruleset_snapshot JSONB,
              p1_id FK, p2_id FK, p1_deck_snapshot JSONB, p2_deck_snapshot JSONB,
-             seed BIGINT, action_log JSONB, winner_id FK NULL, end_reason,
+             seed BIGINT, action_log JSONB, winner_id FK NULL (also NULL for a draw), end_reason,
              started_at, ended_at
 ```
 
@@ -271,9 +283,10 @@ These are starting values; costs and bounds can be tuned in the module files.
 | spell | `buff` | `dmg` 0–5 =1, `hp` 0–5 =1 | dmg + hp, dmg `none` |
 | spell | `summon_token` | `hp` 1–5 =1, `dmg` 0–5 =1 | hp + dmg, dmg `none` |
 | spell | `move_enemy` | — | 2, dmg `none` |
-| field effect | `stat_bonus` | `applies_to` own_origin\|all_own\|enemy; `hp` 0–2, `dmg` 0–2 (a penalty for `enemy`) | |
+| field effect | `stat_bonus` (while in an own section that isn't conquered) | `applies_to` own_origin\|all_own; `hp` 0–2, `dmg` 0–2 | |
+| field effect | `attacker_penalty` (an enemy attacking an own section that isn't conquered takes `hp` damage and hits `dmg` softer) | `hp` 0–2, `dmg` 0–2 | |
 | field effect | `section_hp_bonus` | `amount` 1–10 =5 | |
-| field effect | `free_move` (moving costs no action) | — | |
+| field effect | `free_move` (moving costs no action; a creature moves once a turn at any time) | — | |
 | field effect | `mana_discount` | `card_kind` creature\|spell =spell; `amount` 1–2 =1 | |
 | field effect | `turn_start_heal_section` | `amount` 1–3 =1 | |
 | field effect | `spell_power` | `amount` 1–2 =1 | |
@@ -354,24 +367,56 @@ Pipeline rules:
 - **No `eval` or dynamic code.** Rules JSON can only refer to registered modules.
 
 ### 7.2 State
-`GameState` (Pydantic, serializable to JSON):
-- `ruleset`, `seed`, `rng_state`, `turn_number`, `active_player`, and a `phase_pointer` (whether we're in setup or turn, plus the index)
-- `players[2]`, each with `user_id`, `deck` (ordered list of card instances), `hand`, `mana`, `max_mana`, `origin` and `ready` flag
-- `sections[2][lanes]`, each with `owner`, `lane`, `hp`, `max_hp`, `field_effects`, `slots[N]` (each a creature instance or empty) and `conquered`
-- Each player's `origin` is a snapshot with its name, look and field effects, taken from the deck when the game starts
-- `CreatureInstance`: `uid`, `card` snapshot, `hp`, `dmg`, `abilities`, `owner`, `exhausted`, `has_moved`, `status` effects
+`GameState` (Pydantic, serializable to JSON; M6 keeps it in Redis):
+- `ruleset`, `seed` and `rng_state` (the SplitMix64 state from `engine/rng.py`, so a saved game resumes exactly)
+- `turn_number` (0 during Setup, then 1, 2, …), `active_seat`, `phase` (`{pipeline: "setup" | "turn", index}`) and the `ready` flags of an `actor: both` phase
+- `players[2]`, by **seat**:
+  - Seats are 0 and 1, and seat 0 goes first. The engine never sees users: M6 maps users to seats and picks who sits in seat 0.
+  - Each player has `deck` (top first) and `hand` (oldest first) of card instances, `mana`, `max_mana`, `mana_started` (for the first Gain mana) and the deck's `origin` snapshot.
+- `sections[2][lanes]`, each with `owner`, `lane`, `hp`, `max_hp`, `slots[N]` (a creature instance or empty) and `conquered`
+  - Field effects aren't copied into sections: they are read from the owner's origin.
+  - A conquered section has none.
+- `CreatureInstance`: `uid`, `card` snapshot, `hp`, `max_hp`, `dmg`, `owner`, `field_bonus` (the HP and DMG its section gives it right now), `exhausted` (no action left this turn), `has_moved` and `features` (its abilities)
+- **Ids:**
+  - Deck cards are `p0-1`, `p0-2`, … in shuffled order, so a uid never reveals a card.
+  - A creature keeps its card's uid.
+  - Tokens are `t1`, `t2`, … from `next_uid`.
+- `status` (`playing` or `finished`), `winner` (a seat, or null for a draw) and `end_reason` (`conquered`, `surrender` or `out_of_cards`)
 - `version`, which goes up by one after every applied action
-- `log`, the list of applied actions
+- `log`, the applied actions with their seats
+
+`apply_action` works on `GameState.clone()`. It copies what the engine changes in place, and shares what it never changes: the ruleset, snapshots, cards and log entries, which are frozen.
 
 ### 7.3 Runner API
+The API lives in `app/engine/runner.py`. `app.engine` itself stays empty, because `schemas/rules.py` imports the registry.
 ```python
-start_game(ruleset, deck_p1, deck_p2, seed) -> (GameState, list[Event])
-legal_actions(state, player) -> list[Action]
-apply_action(state, player, action) -> (GameState, list[Event])   # raises IllegalAction
-view_for(state, player) -> PlayerView                             # hides opponent's hand and deck
+start_game(ruleset, decks: tuple[DeckSnapshot, DeckSnapshot], seed) -> (GameState, list[Event])
+legal_actions(state, seat) -> list[Action]
+apply_action(state, seat, action) -> (GameState, list[Event])   # raises IllegalAction
+view_for(state, seat) -> PlayerView
+events_for(events, seat) -> list[Event]
+replay(ruleset, decks, seed, log) -> list[GameState]
 ```
-
-**Runner loop:** walk the pipeline from `phase_pointer`. Automatic phases (`draw`, `gain_mana`, `lane_combat`, `end_turn`) run right away and emit events. When the runner reaches an interactive phase (`action_phase`), it stops and waits for actions. After `end_turn` it moves the active player forward and starts the `turn` list again.
+- **Snapshots:**
+  - A `DeckSnapshot` is `{origin, cards}`, with one `CardSnapshot` per copy: `card_id`, `name`, `kind`, `origin_id`, `mana_cost`, `hp`, `dmg`, `abilities` and `art_url`.
+  - The origin snapshot has `origin_id`, `name`, `color`, `icon`, `field_effects` and `background_art_url`.
+  - M6 checks the ruleset and the decks first. The engine still parses every module reference at the start, so a bad one fails loudly.
+- **`start_game`:**
+  1. shuffle deck 0, then deck 1 (the only randomness in v1)
+  2. build the sections, then run the origins' game-start effects (`section_hp_bonus`)
+  3. run Setup, **each phase for seat 0, then seat 1**
+  4. if `hand.second_player_bonus_card`, seat 1 draws one more card
+  5. start turn 1 for seat 0
+- **A turn starts:**
+  - `turn_started`
+  - **every creature on the board, either player's, gets its action back**, since an `actor: both` phase lets the other player act too
+  - the active player's turn-start effects run (`turn_start_heal_section`)
+  - the turn pipeline walks from its first phase
+- **Runner loop:**
+  - Automatic phases run right away and emit events.
+  - The runner stops at an interactive phase (`action_phase`) and waits for actions. `end_phase` moves past it (in `actor: both`, once both players are ready).
+  - `end_turn` passes the turn to the other seat.
+  - The end of the game stops everything.
 
 **Mana (`gain_mana`):** a player's first `gain_mana` gives them `mana.start` mana (and, in `grow`, a maximum of `start`). Each later one follows `mana.mode`:
 - `grow` (Hearthstone-style, the default): `max_mana` rises by `per_turn`, up to `max`, then `mana` refills to `max_mana`. With 1 / 1 / 10 a player has 1, 2, 3 … 10 mana on their turns.
@@ -380,28 +425,85 @@ view_for(state, player) -> PlayerView                             # hides oppone
 ### 7.4 Actions
 | Action | Payload |
 |---|---|
-| `play_card` | `card_uid`, `target` (section and slot for a creature; a creature, section or none for a spell) |
-| `move` | `creature_uid`, `to_section`, `to_slot` |
-| `attack` | `creature_uid`, `target` (an enemy creature or the enemy section in the same lane, or a neighbouring lane for `ranged`) |
-| `end_phase` | — (the active player); in an `actor: both` phase this is `ready` |
-| `surrender` | — |
+| `play_card` | `card_uid` and `target`: for a creature, an empty slot on its own side; for a spell, one of its targets, or none |
+| `move` | `creature_uid`, `to` (a slot on its own side) |
+| `attack` | `creature_uid`, `target` (a creature or a section) |
+| `end_phase` | — ; in an `actor: both` phase this means ready |
+| `surrender` | — (either player, at any time) |
 
-`legal_actions` lists every valid action and all of its valid targets. **The frontend uses this list to decide which cards are draggable and where they can be dropped** (see frontend_plan §5).
+Targets are tagged by `kind`:
+- a slot: `{kind: "slot", seat, lane, slot}`
+- a creature: `{kind: "creature", uid}`
+- a section: `{kind: "section", seat, lane}`
+- a creature and the slot it goes to (`move_enemy`): `{kind: "creature_to_slot", uid, to}`
+
+- **Cost:** `mana_cost` plus the owner's `mana_discount`, never below 0.
+- **A player's creatures never leave their own half of the board.** A creature is played into any empty slot of its owner's sections, a conquered one too.
+- **One action per creature per turn:** an attack or a move uses it. A creature played this turn has none left (summoning sickness), unless it has `charge`. That holds for tokens too.
+- **Moving:** to any empty slot on the own side, once per turn.
+  - Without `free_move`, a move needs the creature's action and uses it.
+  - With `free_move` (from the owner's origin), a move needs only that the creature hasn't moved this turn: right after it's played, before or after attacking.
+
+`legal_actions` lists every valid action with every valid target, one entry each. **The frontend uses this list to decide which cards are draggable and where they can be dropped** (see frontend_plan §5). `apply_action` checks the specific reasons first (§7.7). Then it requires the action to be in `legal_actions`, so the two never disagree.
 
 ### 7.5 Combat and features
-- A creature attacks within its own lane. If the enemy section in that lane has creatures (or any with `taunt`), it has to attack one of those. Only when the section has no blockers can it damage the section's HP.
-- Creature-vs-creature combat: both creatures deal damage to each other at the same time, like in Hearthstone.
-- A section at 0 HP becomes `conquered`. Its creatures stay, but it can't be healed. When all of a player's sections are conquered (one per lane), `game_over` fires.
-- `ranged` creatures can hit a neighbouring lane only if one exists. With 1 lane, `ranged` has no extra effect.
-- Card features hook into an **internal event bus**: `on_play`, `on_attack`, `on_damaged`, `on_death`, `on_turn_start`, `on_turn_end`. These triggers are only for card features and are **not exposed in the rules editor**.
-- Field-type bonuses come from the **field-effect modules** listed in each player's origin snapshot. They use the same hooks and apply to that player's sections.
+- **What an attack can hit,** in each of its lanes (its own, and a neighbouring one with `ranged`, if one exists):
+  - a `taunt` creature, if the enemy section there has one
+  - else any creature there
+  - else the section itself, unless it is conquered
+- **Creature vs creature:**
+  - Both deal their `dmg` at the same time, like in Hearthstone. `armor` lowers each hit it takes.
+  - A creature at 0 HP dies after the hit, so both can die. Then its death hooks run (`deathrattle_damage` hits the enemy section in its lane). Deaths those cause resolve one trigger level deeper.
+- **`lifesteal_section`:** the damage the creature deals (after armor), attacking or defending, heals its owner's section in its lane, unless that section is conquered.
+- **Sections:**
+  - A section at 0 HP is conquered, and extra damage is lost.
+  - A conquered section can't be damaged or healed again.
+  - Its creatures stay and still act, but lose the bonuses its field gave them.
+- **`attacker_penalty`:** when an enemy creature attacks one of the owner's sections that isn't conquered (the section itself, not a creature in it):
+  - the attacker takes `hp` damage, which armor doesn't reduce
+  - it deals `dmg` less to the section, never below 0
+- **Field bonuses follow the section a creature stands in:**
+  - They come from `stat_bonus` (`own_origin`, when the card's origin is the deck's, or `all_own`) and `field_affinity`.
+  - They are counted when a creature is summoned or moved into a section that isn't conquered. They are lost when its section is conquered, or when it moves into a conquered one.
+  - Gaining HP raises HP and the maximum. Losing it lowers the maximum, and HP only down to it, so losing a bonus never kills.
+  - Each change emits `stats_changed`.
+  - `free_move`, `mana_discount` and `spell_power` belong to the player, not a section.
+- **Phases:**
+  - `draw`: in Setup, both players draw. A draw from an empty deck draws nothing and emits `deck_empty`; a full hand still takes the card.
+  - `lane_combat`: the active player's creatures that can still attack do so on their own, lane by lane and slot by slot, at the first target in the order above. A ranged creature with nothing to hit in its own lane tries its other lanes, lowest first.
+  - `discard_to_hand_limit`: the active player discards their newest cards down to `hand.max_size`. Without this phase, a hand has no limit.
+- **The game ends:**
+  - **conquered:** all of a player's sections are conquered, and the other player wins. If both players lose their last section in the same chain, it's a draw.
+  - **out of cards:** both players have no cards in deck or hand, and no creature is on the board. The player with more sections that aren't conquered wins; the same number is a draw.
+  - **surrender:** the other player wins.
+
+  It is checked after every action, every automatic phase and every `lane_combat` attack.
+- **Hooks:** every module class has hook methods with do-nothing defaults (in `registry.py`). The engine calls them for every module involved, so the core never checks a module's key. Hooks change the game only through `EngineContext`.
+  - Phases: `run`, `actor`, `allowed`, `time_limit_s`
+  - Features: `must_be_attacked_first`, `ready_when_summoned`, `attack_lanes`, `damage_taken`, `field_bonus`, `on_damage_dealt`, `on_death`
+  - Spells: `targets`, `resolve`
+  - Field effects: `on_game_start`, `on_turn_start`, `field_bonus`, `move_uses_action`, `cost_change`, `spell_damage_bonus`, `attacker_penalty`
+
+  These are only for modules, and are **not exposed in the rules editor**.
 
 ### 7.6 Events
-Every change emits a typed event, for example `card_drawn`, `mana_changed`, `creature_summoned`, `creature_moved`, `attack`, `damage`, `heal`, `creature_died`, `section_hp_changed`, `section_conquered`, `phase_changed`, `turn_started` or `game_over`. The frontend plays these as animations. Events that reveal hidden information (for example `card_drawn`) are stripped down per player.
+Every change emits a typed event. The frontend plays these as animations.
+- `game_started`, `turn_started`, `phase_changed`
+- `card_drawn`, `deck_empty`, `card_discarded`, `mana_changed`, `card_played`
+- `creature_summoned`, `creature_moved`, `attack`, `damage`, `heal`, `stats_changed`, `creature_died`
+- `section_hp_changed`, `section_conquered`
+- `player_ready`, `game_over` (`winner`, a seat or null for a draw, and `end_reason`)
 
-### 7.7 Safety limits
-- A maximum number of engine steps per `apply_action` (for example 1000) and a maximum depth for chains of triggered effects (for example 20). If either is exceeded, the action is rejected and logged.
-- `IllegalAction` carries a machine-readable reason (`not_your_turn`, `not_enough_mana`, `slot_occupied`, `invalid_target`, ...).
+`card_drawn` and `card_discarded` reveal a card: `events_for(events, seat)` removes the card, and its uid, for the other seat.
+
+### 7.7 Safety limits and errors
+- At most 1000 engine steps per `apply_action`, and a chain of triggered effects at most 20 deep. Going past either rejects the action with `engine_limit`, and leaves the state as it was.
+- The engine doesn't log; the service that runs it does.
+- `IllegalAction` carries a machine-readable reason:
+  - `game_over`, `not_your_turn`
+  - `not_allowed_now`: the phase or its `allow` forbids it, or the player is already ready
+  - `unknown_card`: not in the hand, or not one of the player's creatures
+  - `not_enough_mana`, `slot_occupied`, `invalid_target`, `creature_exhausted`, `already_moved`, `engine_limit`
 
 ### 7.8 Cost suggestion (never enforced)
 ```
@@ -418,8 +520,12 @@ balance             = 'under' | 'balanced' | 'over'         # mana_cost vs the s
 - `tests/fixtures/cost_cases.json` holds the formula cases (`kind, hp, dmg, ability_costs, mana_cost` with the expected points, suggestion and balance). The backend runs them, and the frontend's tests must run the same file.
 
 ### 7.9 Hidden information and replays
-- `view_for` replaces the opponent's hand and deck with counts, and hides the order of the player's own deck.
-- A replay is the ruleset snapshot, both deck snapshots, the seed and the action log. Running them through the engine again gives back every intermediate state.
+- **`view_for(state, seat)`:**
+  - the player's own hand, each card with its current cost (after discounts)
+  - the opponent's hand as a count, and **both decks as counts**: a player never sees the order, or the contents, of a deck
+  - public: the board, both players' mana, the turn, the phase (key, interactive, actor, allowed kinds, `time_limit_s`), the ready flags, the status, the winner and `version`
+  - never sent: the seed and the RNG state
+- **Replays:** a replay is the ruleset snapshot, both deck snapshots, the seed and the action log. `replay(...)` runs them through the engine again and gives back every intermediate state.
 
 ## 8. REST API
 
@@ -579,7 +685,7 @@ The token in the URL never reaches the logs: the access line leaves out query st
 | S → C | `game_state` | `view`, `version`, **`legal_actions`**, `phase`, `deadline` |
 | S → C | `events` | the list of events from the last action (filtered per player) |
 | S → C | `error` | `seq`, `reason` |
-| S → C | `game_over` | `winner`, `reason`, `game_id` |
+| S → C | `game_over` | `winner` (null for a draw), `reason`, `game_id` |
 
 ### 9.3 Processing
 - Each room has its own `asyncio.Lock`. For each action the server:
@@ -693,7 +799,7 @@ Art used to be kept forever. Orphans come from deleted cards and origins, art th
 | M6 | Rooms, WebSocket, Redis persistence, timers, reconnect | two WS clients can play a full game to a win |
 | M7 | Match history, replay data, polish | `GET /api/games/{id}` can be replayed exactly |
 
-M0–M4 are done (§1).
+M0–M5 are done (§1).
 
 The frontend milestones (F0–F6) in [frontend_plan.md](frontend_plan.md) are designed to start once the matching backend milestone is done.
 
@@ -703,8 +809,11 @@ Some cross-cutting features were built between milestones, outside this table: d
 
 - **Engine unit tests** for every module: phases, features, spells and field effects.
 - **Board-size tests:** full games with 1, 3 and 5 lanes, to check that the win condition and `ranged` targeting work for every size.
-- **Golden replay tests:** a seed, a ruleset, two decks and a list of actions must produce a known final state (stored as JSON fixtures).
-- **Property test:** for random games, every action from `legal_actions` is accepted by `apply_action`, and random other actions are rejected.
+- **Golden replay tests:** a seed, a ruleset, two decks and a list of actions must produce a known final state (stored as JSON fixtures in `tests/fixtures/replays/`). `UPDATE_GOLDEN=1 pytest tests/engine` plays the scenarios again with the test bot and rewrites the fixtures, so any change in how games play shows up in review.
+- **Property test:** random games with fixed seeds (no Hypothesis):
+  - every action from `legal_actions` is accepted by `apply_action`
+  - changed actions are rejected exactly when they aren't legal, and leave the state unchanged
+  - `apply_action` never changes its input, and the state survives a JSON round trip
 - **API tests** with httpx against a throwaway Postgres (a docker service or testcontainers).
 - **WS integration test:** two simulated clients create and join a room, select decks and play to `game_over`.
 

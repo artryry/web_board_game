@@ -3,18 +3,35 @@
 Every module is a class registered under a key for its kind. A module declares a display name,
 a description and a `Params` model whose JSON Schema the catalog sends to the frontend. Features
 and spells also declare a cost as data (`CostSpec`), so the frontend can compute the same cost
-suggestion. Behaviour hooks are added in M5.
+suggestion.
+
+Behaviour lives in hook methods with do-nothing defaults. The engine builds a module with its
+parsed params (`registry.build`) and calls the hooks of every module involved, so the core never
+checks a module's key. Hooks change the game only through the `EngineContext` they are given.
+
+`app.schemas.rules` imports this file, and the engine's state imports that, so engine types are
+imported here for type checking only.
 """
 
 import importlib
 from collections.abc import Callable, Mapping
 from enum import StrEnum
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from pydantic_core import ErrorDetails
 
+if TYPE_CHECKING:
+    from app.engine.actions import ActionKind, Target
+    from app.engine.context import EngineContext
+    from app.engine.seats import Seat
+    from app.engine.snapshots import CardSnapshot, OriginSnapshot
+    from app.engine.state import CreatureInstance
+
 _BUILTIN_MODULES_PACKAGE = "app.engine.modules"
+
+# Who may act in an interactive phase: the active player only, or both players.
+PhaseActor = Literal["active", "both"]
 
 
 class ModuleKind(StrEnum):
@@ -97,6 +114,23 @@ class CostSpec(BaseModel):
         )
 
 
+class StatDelta(BaseModel):
+    """A change to a creature's HP and DMG, as hooks return it."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    hp: int = 0
+    dmg: int = 0
+
+    def __add__(self, other: "StatDelta") -> "StatDelta":
+        return StatDelta(hp=self.hp + other.hp, dmg=self.dmg + other.dmg)
+
+
+NO_CHANGE = StatDelta()
+
+ALL_ACTION_KINDS: frozenset["ActionKind"] = frozenset(("play", "move", "attack"))
+
+
 class Module:
     kind: ClassVar[ModuleKind]
     key: ClassVar[str]
@@ -104,11 +138,33 @@ class Module:
     description: ClassVar[str]
     Params: ClassVar[type[ModuleParams]] = EmptyParams
 
+    # An instance of the module's `Params`. A module that reads it redeclares it as
+    # `params: Params`; `Any` here lets that narrower type check in mypy and Pylance alike.
+    params: Any
+
+    def __init__(self, params: ModuleParams) -> None:
+        self.params = params
+
 
 class PhaseModule(Module):
     kind = ModuleKind.PHASE
     # Interactive phases stop the runner and wait for player actions.
     interactive: ClassVar[bool] = False
+
+    def run(self, ctx: "EngineContext", seat: "Seat") -> None:
+        """Runs an automatic phase for `seat`: the active player, or each player in Setup."""
+
+    def actor(self) -> PhaseActor:
+        """Who may act in an interactive phase."""
+        return "active"
+
+    def allowed(self) -> frozenset["ActionKind"]:
+        """The action kinds an interactive phase allows (ending the phase always is)."""
+        return ALL_ACTION_KINDS
+
+    def time_limit_s(self) -> int | None:
+        """How long players have in an interactive phase. M6 turns it into a deadline."""
+        return None
 
 
 class CostedModule(Module):
@@ -120,16 +176,86 @@ class CostedModule(Module):
 
 
 class FeatureModule(CostedModule):
+    """A creature's ability."""
+
     kind = ModuleKind.FEATURE
+
+    def must_be_attacked_first(self) -> bool:
+        return False
+
+    def ready_when_summoned(self) -> bool:
+        """True lets the creature act on the turn it is summoned."""
+        return False
+
+    def attack_lanes(self, lane: int, lanes: int) -> set[int]:
+        """The lanes a creature in `lane` can attack, on a board of `lanes` lanes."""
+        return {lane}
+
+    def damage_taken(self, amount: int) -> int:
+        """The damage a hit of `amount` does to the creature."""
+        return amount
+
+    def field_bonus(self, creature: "CreatureInstance", origin: "OriginSnapshot") -> StatDelta:
+        """The bonus the creature gets while it stands in one of its owner's sections that isn't
+        conquered. `origin` is its owner's deck origin."""
+        return NO_CHANGE
+
+    def on_damage_dealt(
+        self, ctx: "EngineContext", creature: "CreatureInstance", amount: int
+    ) -> None:
+        """After the creature deals `amount` damage in a fight, attacking or defending."""
+
+    def on_death(self, ctx: "EngineContext", creature: "CreatureInstance", lane: int) -> None:
+        """After the creature died in `lane` and left the board."""
 
 
 class SpellModule(CostedModule):
+    """A spell card's effect."""
+
     kind = ModuleKind.SPELL
     dmg_use: ClassVar[DmgUse]
 
+    def targets(self, ctx: "EngineContext", caster: "Seat") -> list["Target | None"]:
+        """Every valid target; `None` means the spell takes no target."""
+        return [None]
+
+    def resolve(
+        self, ctx: "EngineContext", caster: "Seat", card: "CardSnapshot", target: "Target | None"
+    ) -> None:
+        raise NotImplementedError(f"Spell module '{self.key}' doesn't resolve")
+
 
 class FieldEffectModule(Module):
+    """An effect of a player's deck origin. It belongs to that player (its owner)."""
+
     kind = ModuleKind.FIELD_EFFECT
+
+    def on_game_start(self, ctx: "EngineContext", owner: "Seat") -> None:
+        """Once, when the board is built."""
+
+    def on_turn_start(self, ctx: "EngineContext", owner: "Seat") -> None:
+        """At the start of each of the owner's turns."""
+
+    def field_bonus(self, creature: "CreatureInstance", origin: "OriginSnapshot") -> StatDelta:
+        """The bonus one of the owner's creatures gets while it stands in one of the owner's
+        sections that isn't conquered. `origin` is the owner's deck origin."""
+        return NO_CHANGE
+
+    def move_uses_action(self) -> bool:
+        return True
+
+    def cost_change(self, card: "CardSnapshot") -> int:
+        """Added to the mana cost of the owner's cards; the cost never goes below 0."""
+        return 0
+
+    def spell_damage_bonus(self) -> int:
+        """Added to the damage of the owner's damage spells."""
+        return 0
+
+    def attacker_penalty(self) -> StatDelta:
+        """What an enemy creature loses when it attacks one of the owner's sections that isn't
+        conquered: `hp` is damage it takes, `dmg` is taken off its hit on the section."""
+        return NO_CHANGE
 
 
 def _check_declaration(cls: type[Module]) -> None:
@@ -194,6 +320,11 @@ class ModuleRegistry:
             return module.Params.model_validate(params)
         except ValidationError as exc:
             raise InvalidParamsError(base.kind, key, exc) from None
+
+    def build[M: Module](self, base: type[M], ref: ModuleRef) -> M:
+        """The module for `ref`, with its params parsed; a bad reference fails loudly."""
+        params = self.validate_params(base, ref.key, ref.params)
+        return self.get(base, ref.key)(params)
 
 
 def _load_builtin_modules() -> None:

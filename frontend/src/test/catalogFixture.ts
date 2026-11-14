@@ -132,10 +132,16 @@ export const CATALOG: Catalog = {
       name: "Stat bonus",
       description: "Changes creature stats.",
       params_schema: params({
-        applies_to: choice("Applies To", ["own_origin", "all_own", "enemy"], "own_origin"),
+        applies_to: choice("Applies To", ["own_origin", "all_own"], "own_origin"),
         hp: bounded("HP", 0, 2, 0),
         dmg: bounded("DMG", 0, 2, 0),
       }),
+    },
+    {
+      key: "attacker_penalty",
+      name: "Attacker penalty",
+      description: "Enemy creatures that attack your sections lose HP and hit softer.",
+      params_schema: params({ hp: bounded("HP", 0, 2, 0), dmg: bounded("DMG", 0, 2, 0) }),
     },
     {
       key: "free_move",

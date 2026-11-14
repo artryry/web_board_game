@@ -13,3 +13,8 @@ class Armor(FeatureModule):
 
     class Params(ModuleParams):
         amount: Annotated[int, Field(ge=1, le=5)] = 1
+
+    params: Params
+
+    def damage_taken(self, amount: int) -> int:
+        return max(0, amount - self.params.amount)

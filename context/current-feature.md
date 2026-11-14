@@ -1,285 +1,392 @@
-# Current feature: F3 — Rules editor
+# Current feature: M5 — Engine core
 
-**Status:** built 2026-11-13 on `f3-rules-editor`, not committed. Every check passes, and so does the new e2e spec (see the session file for the dev nginx stalls). The look by hand is partly done (see Done when).
-**Plan reference:** [frontend_plan.md §3, §4.2a, §4.3, §7 and §10](frontend_plan.md), [backend_plan.md §5, §6 and §8](backend_plan.md) (the phase modules, the rules JSON and its errors, the ruleset API), [coding-standards.md](coding-standards.md)
-**Depends on:** M4 (rulesets, `/validate`, sharing) and F2 (the share dialog, the import page, dnd-kit core, the leave guard). Both are done.
-**Unblocks:** F4, whose Create room page picks a ruleset. F3 also covers use cases UC4 (create turn-flow rules), UC5 (load saved rules), UC9 (share rules) and UC12 (save rules).
+**Status:** built on 2026-11-14 on `m5-engine`, not committed yet ([sessions/session_2026-11-14_m5-engine.md](sessions/session_2026-11-14_m5-engine.md)). Every decision was confirmed on 2026-11-14 (see Decisions).
+**Plan reference:**
+- [backend_plan.md](backend_plan.md): §0 (the game), §5 (modules), §6 (rules JSON), §7 (engine), §11 and §12 (tests)
+- [coding-standards.md](coding-standards.md): §2 (a pure engine, mypy strict, modules extend the game) and §4 (tests)
+
+**Depends on:** M2 (the registry and every starter module) and M4 (`RulesetDefinition`, with `mana.mode` since F3). Both are done.
+**Unblocks:**
+- M6, whose rooms run games through the engine
+- F5, whose board needs the state, `legal_actions` and events
+
+On the engine side it covers UC7 (play a game).
 
 Earlier features still have follow-ups:
+- **F3:** committed on `f3-rules-editor` (`c065f09`), not merged or pushed. Still to do: a look by hand in a real browser ([sessions/session_2026-11-13_f3-rules.md](sessions/session_2026-11-13_f3-rules.md)).
 - **F2:** committed on `f2-decks` (`716a793`), not merged or pushed. Still to check by hand: the copied art on imported cards, and a look in two real browsers ([sessions/session_2026-11-12_f2-decks.md](sessions/session_2026-11-12_f2-decks.md)).
 - **M4:** `c8cf578` is on `master` locally, not pushed yet. Its two migrations run on deploy ([sessions/session_2026-11-12_m4-rulesets.md](sessions/session_2026-11-12_m4-rulesets.md)).
-- **Dev nginx:** it stalls under parallel load (an unreachable IPv6 `host.docker.internal`, and slow proxying to the host), so `npm run e2e` passes only with `--workers=1`. On 2026-11-13 even `--workers=1` hit stalled page loads (the auth and F2 share specs too); with `--retries=2` everything passed. Not fixed; see the F2 and F3 session files.
+- **Dev nginx:** page loads through it stall (an unreachable IPv6 `host.docker.internal`), so `npm run e2e` needs `--workers=1`, and on 2026-11-13 even that needed `--retries=2`. Not fixed; see the F2 and F3 session files.
 - **Art cleanup:** deploy it, then check Render ([sessions/session_2026-11-11_art-cleanup.md](sessions/session_2026-11-11_art-cleanup.md)).
 - **Logging:** the checks by hand ([sessions/session_2026-11-11_logging.md](sessions/session_2026-11-11_logging.md)).
 
 ## Goal
-A logged-in user can:
-- see the default rule set and their own, and start a new one from the default or from any of them (Duplicate)
-- edit a rule set: the board, deck, mana and hand settings, and the Setup and Turn phase pipelines (add, set up, reorder, remove)
-- see every problem inline while editing, as the server reports it, and save
-- share a rule set by code, and import someone's shared rule set
+A pure, deterministic game engine in `backend/app/engine` that:
+- starts a game from a ruleset, two deck snapshots and a seed
+- runs the Setup and Turn pipelines, and stops at interactive phases to wait for the players
+- lists every legal action with its targets, applies actions, and reports what happened as events
+- runs every starter module (6 phases, 7 features, 7 spells, 7 field effects, `attacker_penalty` included) through hooks, with no module key in the core
+- hides each player's secrets in their view, and replays a game exactly from its seed and actions
 
-Done when (frontend_plan §7): **the default ruleset can be loaded, edited, validated and saved.**
+Done when (backend_plan §11): **the full starter module set works; golden replay tests pass.**
+
+There is no API, DB, Redis or timer in M5. M6 calls the engine from rooms.
 
 ## How it works
 
-### Pages and routes
-| Route | Page | New in F3 |
+### Files (backend_plan §3)
+```
+app/engine/
+  state.py        GameState, PlayerState, Section, CreatureInstance, CardInstance, PhasePointer
+  snapshots.py    DeckSnapshot, CardSnapshot, OriginSnapshot (what start_game takes)
+  rng.py          the seeded PRNG
+  actions.py      the Action types and IllegalAction
+  events.py       the Event types and per-player filtering
+  context.py      EngineContext: the only way the runner and modules change the state
+  combat.py       attacks, damage, healing, deaths, conquering
+  targets.py      who and what can be targeted
+  legality.py     legal_actions and the checks behind IllegalAction
+  views.py        PlayerView and view_for
+  runner.py       start_game, apply_action, replay (and re-exports legal_actions, view_for)
+  modules/        the existing modules, now with their behaviour hooks
+```
+- **Imports:** the engine imports what it needs, for example `RulesetDefinition` from `app.schemas.rules` (confirmed 2026-11-14). It stays pure, as coding-standards §2 asks: no I/O, no clock, no logging.
+- **`app.engine.*` is checked with `mypy --strict`** (already set in `pyproject.toml`).
+
+### What a game starts from
+```python
+start_game(ruleset: RulesetDefinition, decks: tuple[DeckSnapshot, DeckSnapshot], seed: int)
+    -> tuple[GameState, list[Event]]
+```
+- **Seats, not users (confirmed).** The engine knows seats 0 and 1. Seat 0 goes first. M6 maps users to seats and picks who sits in seat 0. This changes backend_plan §7.2's `user_id` in the player state.
+- **`DeckSnapshot`:** `{origin: OriginSnapshot, cards: list[CardSnapshot]}`
+  - Each copy of a card is listed separately, so a card with 2 copies appears twice.
+  - `CardSnapshot`: `card_id`, `name`, `kind`, `origin_id`, `mana_cost`, `hp`, `dmg`, `abilities` and `art_url`. `art_url` is for display only.
+  - A spell's effect is its one ability (`abilities[0]`), as cards store it today.
+- **`OriginSnapshot`:** `origin_id`, `name`, `color`, `icon`, `field_effects` and `background_art_url`.
+- **The engine trusts the shapes it's given:** M6 checks the ruleset (`validate_definition`) and the decks (the ruleset's deck rules) before it starts a game. Module params are still parsed through the registry, so a bad one fails loudly.
+
+### Determinism
+- **Our own small PRNG (SplitMix64) in `rng.py` (confirmed).** Its state is one integer in `GameState`, so a saved state resumes exactly, and no Python upgrade changes the numbers. Python's `random` guarantees only `random()` across versions, not `shuffle`.
+- **The only random thing in v1 is shuffling both decks** at the start (Fisher–Yates). Who goes first is M6's choice of seats.
+- **No clock:** an interactive phase reports its `time_limit_s`. M6 turns that into a deadline.
+
+### State (backend_plan §7.2)
+- **`GameState`:**
+  - `ruleset`, `seed`, `rng_state`
+  - `turn_number` (0 during setup, then 1, 2, …), `active_seat`
+  - `phase` (`{pipeline: "setup" | "turn", index}`) and `ready` flags for `actor: both` phases
+  - `players[2]`, `sections[2][lanes]`
+  - `status` (`playing` or `finished`), `winner` (a seat, or null for a draw), `end_reason` (`conquered`, `surrender` or `out_of_cards`)
+  - `next_uid`, `version` (+1 per applied action) and `log` (the applied actions with their seats)
+- **`PlayerState`:**
+  - `deck` (top first) and `hand` (oldest first), both `CardInstance`s
+  - `mana`, `max_mana`, `mana_started` (for the first Gain mana, §7.3)
+  - the `origin` snapshot
+- **`Section`:** `owner`, `lane`, `hp`, `max_hp`, `slots` (a creature or empty) and `conquered`.
+  - Its field effects are the owner's origin's, read from there rather than copied into each section (confirmed; §7.2 listed them per section).
+  - A conquered section has none (confirmed): the opponent has taken it.
+- **`CreatureInstance`:**
+  - `uid` and the `card` snapshot
+  - `hp`, `max_hp`, `dmg`, `owner`
+  - `field_bonus` (the HP and DMG it has now from its section, so a change of section or a conquest can take it back; see Features and field effects)
+  - `exhausted` (no action left this turn), `has_moved`
+  - `features` (its parsed abilities)
+- **Ids:** deck cards get `p0-1`, `p0-2`, …; tokens get `t1`, `t2`, … from `next_uid`.
+- **Round-trip:** the whole state is JSON. A test serializes it and reads it back unchanged, since M6 keeps it in Redis.
+
+### The runner (backend_plan §7.3)
+- **`start_game`:**
+  1. shuffle both decks
+  2. build the sections (`section_hp`, plus any `section_hp_bonus`)
+  3. run Setup
+  4. if `hand.second_player_bonus_card`, seat 1 draws one more card (confirmed: right after Setup)
+  5. start turn 1 for seat 0
+- **Setup runs each automatic phase for both players, seat 0 first (confirmed).** It already has no interactive phase and no `end_turn` (§6).
+- **A turn starts:**
+  - `turn_started`
+  - every creature on the board gets its action back, both players' creatures (confirmed), since `actor: both` phases let the other player act too
+  - the field effects' turn-start hooks run (`turn_start_heal_section`)
+  - the Turn pipeline walks from index 0
+- **Walking the pipeline:**
+  - an automatic phase runs its hook and the runner moves on
+  - an interactive phase stops the runner, which waits for actions
+  - `end_phase` moves past the interactive phase (in `actor: both`, once both are ready)
+  - `end_turn` passes the turn to the other seat and starts the next turn
+- **Game over** stops everything: `status: finished`, and there are no legal actions after it. See Combat and damage for the ways a game ends.
+
+### Phases
+| Phase | What it does |
+|---|---|
+| `draw` | The active player draws `count` cards (in Setup, both do). **From an empty deck nothing happens**, and a `deck_empty` event says so (confirmed). Draws never fail on a full hand. |
+| `gain_mana` | §7.3: the first one gives `mana.start`; later ones `grow` (the maximum +`per_turn` up to `max`, then refill) or `restore` (+`per_turn` up to `max`, unspent kept). |
+| `action_phase` | Interactive. `actor: active` lets only the active player act; `both` lets both act, each with their own mana and creatures, until both are ready. `allow` limits the action kinds. |
+| `lane_combat` | **The active player's creatures that can still attack attack on their own** (confirmed): lane by lane, slot by slot, at a taunt creature first, else the first enemy creature in the lane, else the enemy section. A ranged creature with nothing to hit in its own lane tries its other attack lanes, lowest index first, in the same order (confirmed). |
+| `discard_to_hand_limit` | **The active player discards their newest cards down to `hand.max_size`** (confirmed). Without this phase in the rules, a hand has no limit. |
+| `end_turn` | Ends the turn. |
+
+### Actions (backend_plan §7.4)
+- **`play_card`:**
+  - It costs `mana_cost` minus any `mana_discount`, never below 0, and needs that much mana.
+  - A creature goes into an empty slot of any of its owner's sections, a conquered one too (confirmed). In a conquered section it gets no bonus from its origin (see Features and field effects).
+  - A player's creatures never leave their own half of the board: playing, moving and `move_enemy` all stay on the owner's side.
+  - A spell takes its effect's target (see Spells).
+- **`move`:**
+  - to any empty slot in its owner's sections, once per turn (confirmed)
+  - It needs the creature's action and uses it, unless the owner's origin has `free_move`.
+  - With `free_move` a move needs only that the creature hasn't moved this turn: right after it's played, before or after attacking (confirmed).
+- **`attack`:**
+  - **Who can attack:** a creature that isn't exhausted. A creature played this turn is exhausted (summoning sickness) unless it has `charge`; tokens are too.
+  - **What it can hit,** in its lane (and, with `ranged`, a neighbouring lane):
+    - a taunt creature, if the enemy section there has any
+    - else any creature there
+    - else the section itself, unless it is conquered
+- **`end_phase`:** ends an interactive phase; in an `actor: both` phase it means ready.
+- **`surrender`:** either player, at any time.
+- **One action per creature per turn (confirmed):** an attack or a move uses it, except a move with `free_move`.
+- **`legal_actions(state, seat)`** lists every action with every valid target, one entry each, so the frontend can drag only what is allowed (frontend_plan §5).
+
+### Combat and damage (backend_plan §7.5)
+- Creatures fight at the same time: both deal their `dmg`.
+- **`armor`** lowers each hit it takes by its `amount`, never below 0.
+- **`lifesteal_section`:** damage the creature deals, attacking or defending, heals its owner's section in its lane, unless that section is conquered.
+- **Deaths:** a creature at 0 HP dies after the hit is resolved, so both fighters can die. Then its `on_death` hooks run (`deathrattle_damage` hits the enemy section in its lane).
+- **Sections:**
+  - A section at 0 HP is conquered. Extra damage is lost.
+  - A conquered section can't be healed or damaged again.
+  - Its creatures stay and still act, but they lose the bonuses its field gave them (see Features and field effects).
+- **Game over:**
+  - **Conquered:** when all of a player's sections are conquered, the other player wins. If both lose their last section in one chain, it's a draw (`winner: null`, confirmed).
+  - **Out of cards (confirmed):**
+    - The trigger: both players have no cards left (deck and hand empty) and there are no creatures on the board. Then nothing can change the sections any more.
+    - The player with more sections not conquered wins; with the same number, it's a draw (`winner: null`).
+    - `end_reason` is `out_of_cards`. It's checked after every action and every automatic phase.
+  - **Surrender:** the other player wins.
+- Healing never goes above `max_hp`.
+
+### Spells
+| Spell | Target | Effect |
 |---|---|---|
-| `/rules` | `RulesListPage` | the default rule set, then the user's own |
-| `/rules/new` | `RulesEditorPage` | a new rule set, from the default; nothing is created until Save |
-| `/rules/new?from=<id>` | `RulesEditorPage` | a copy of that rule set, named "<name> copy" (cut to 40 characters) |
-| `/rules/:id` | `RulesEditorPage` | the user's own rule set; the default one is read-only |
+| `deal_damage` | an enemy creature (or any creature, by `target`) | the card's `dmg` plus `spell_power`; armor applies |
+| `damage_section` | an enemy section that isn't conquered | the card's `dmg` plus `spell_power` |
+| `heal` | one of the caster's creatures, or one of their sections that isn't conquered (by `target`) | heals `-dmg` |
+| `draw_cards` | — | draws `count` cards |
+| `buff` | one of the caster's creatures | `+dmg`, and `+hp` to both its HP and maximum |
+| `summon_token` | an empty slot of the caster's | a token creature (`hp`, `dmg`, the caster's origin, no features) |
+| `move_enemy` | an enemy creature, and an empty slot on the enemy's side | moves it there |
 
-- The main nav gets **Rules**, after Decks: Dashboard, Cards, Decks, Rules, Origins.
-- In the UI the thing is a "rule set" (the deck builder and the import page already say so); in code it stays `ruleset`.
+`spell_power` adds to the spells whose `dmg_use` is `damage`.
 
-### Rules list (`/rules`)
-- **Built like the origins page:** a "Default" section, then "My rule sets". The server already lists the default first, then the user's own by name (`useRulesets`, in full).
-- **Each rule set shows:**
-  - its name, linked to the editor
-  - a one-line summary: lanes, deck size, and the number of turn phases (for example "3 lanes · 30-card decks · 4 turn phases")
-  - a "Shared" mark while it has a share code (own rule sets only)
-- **Actions:**
-  - the default: **View** and **Duplicate**
-  - own rule sets: **Edit**, **Duplicate**, **Share** and **Delete**. Delete asks first, and says when a share link will stop working.
-- **New rule set** goes to `/rules/new`.
-- **Empty state** for own rule sets: "No rule sets yet. Duplicate the default, or start a new one."
+### Features and field effects
+- **Features:**
+  - `taunt` (attacked first)
+  - `charge` (no summoning sickness)
+  - `ranged` (also a neighbouring lane; no extra effect with one lane)
+  - `armor`, `deathrattle_damage`, `lifesteal_section`
+  - `field_affinity` (+`bonus` DMG and HP while it stands in a section of its owner's that isn't conquered, when the card's origin is its owner's deck origin)
+- **Field effects** (from the owner's origin):
+  - `stat_bonus` (`own_origin` or `all_own`; `enemy` moves to `attacker_penalty`)
+  - `attacker_penalty` (new, confirmed): when an enemy creature attacks one of the owner's sections that isn't conquered (the section itself, not a creature in it), the attacker takes `hp` damage (armor doesn't reduce it; it can die) and deals `dmg` less to the section, never below 0. Params `hp` 0–2 and `dmg` 0–2. A data migration turns stored `stat_bonus` with `applies_to: enemy` into it.
+  - `section_hp_bonus` (at the start)
+  - `free_move`
+  - `mana_discount`
+  - `turn_start_heal_section` (each of the owner's turns, sections that aren't conquered)
+  - `spell_power`
+- **Field bonuses follow the section a creature stands in (confirmed):**
+  - **Which bonuses:** `stat_bonus` (`own_origin`: the card's origin is the deck's; `all_own`) and `field_affinity`.
+  - **When they're counted:** when a creature is summoned or moved into a section. A section that isn't conquered gives them; a conquered one doesn't, since the opponent has taken it.
+  - **When they're lost:** when a section is conquered, its creatures lose them at once. Moving out of a conquered section brings them back.
+  - **How:** the creature keeps its current `field_bonus`, and the engine applies the difference.
+    - Gaining HP raises both HP and maximum HP.
+    - Losing HP lowers the maximum, and HP only down to it, so losing a bonus never kills (confirmed, as Hearthstone does).
+    - Each change emits `stats_changed`.
+  - **No negative bonuses:** penalties from the opponent's origin are `attacker_penalty`, which acts on attacks, not on stats.
+  - **Player-wide effects:** `free_move`, `mana_discount` and `spell_power` belong to the player, not a section, so a conquest doesn't change them.
 
-### Rules editor (`/rules/new`, `/rules/:id`)
-```
-┌ ← Rule sets ──────────────────────────────────────────────────────────────┐
-│ Name [______________]                    [Duplicate] [Share] [Delete] [Save] │
-│ ✓ No problems  (or: ✗ 2 problems: Turn needs an End turn · Lanes ≤ 5)     │
-├─────────── Settings ─────────────────┬─────────── Phases ──────────────────┤
-│ Board  Lanes [3] Slots [3] HP [20]   │ Setup · runs once before turn 1     │
-│   ┌──┬──┬──┐  thumbnail: lanes × 2   │  ⠿ Draw · 3 cards        ↑ ↓ ▾ ✕   │
-│   ├──┼──┼──┤  sections, with slots   │ Turn                                │
-│   └──┴──┴──┘                         │  ⠿ Gain mana              ↑ ↓ ▾ ✕   │
-│ Deck   Size [30] Copies [2] ☑ Neutral│  ⠿ Draw · 1 card          ↑ ↓ ▾ ✕   │
-│ Mana   Start [1] Per turn [1] Max [10]│  ⠿ Action phase ⏱ 90 s   ↑ ↓ ▾ ✕   │
-│ Hand   Max [10] ☑ Bonus card, 2nd    │  ⠿ End turn               ↑ ↓ ▾ ✕   │
-│                                      │ Phases: Draw [+Setup] [+Turn] …     │
-│                                      │ Turn order: Gain mana → Draw → …    │
-└──────────────────────────────────────┴─────────────────────────────────────┘
-```
-- **Header:**
-  - name (required, at most 40 characters, `NAME_MAX_LENGTH`; names need not be unique)
-  - **Save**
-  - **Duplicate**, **Share** and **Delete** for a saved rule set of the user's own
-  - the validation status (see Validation)
-- **Starting values:**
-  - `/rules/new`: the default rule set's definition, with an empty name
-  - `/rules/new?from=<id>`: that rule set's definition, named "<name> copy" (like the origin editor's `?from=`)
-  - `/rules/:id`: the saved rule set
-- **Settings (a plain form):**
-  - **Board:** lanes, slots per section, section HP. A small **board thumbnail** draws `lanes` columns × 2 rows of sections (one row per player, as on the board in §5.1), each with its slots, and updates as the values change.
-  - **Deck:** size (exact), maximum copies, and a checkbox for neutral cards in a deck of another origin.
-  - **Mana:** start, per turn, maximum.
-  - **Hand:** maximum hand size, and a checkbox for the second player's bonus card. A hint says the starting hand is whatever the Setup phases draw.
-  - Whole numbers only. **The bounds aren't copied to the client** (proposed): `/validate` reports them at the field ("Input should be less than or equal to 5").
-- **Phase pipelines:** two lists, **Setup** ("runs once, before the first turn") and **Turn**.
-  - **Each phase (`PhaseItem`):**
-    - a drag handle, the module's name, and a short summary of its params (`describeParams`, for example "Draw · 1 card")
-    - an interactive phase shows its time limit on the collapsed item ("⏱ 90 s"), from its `time_limit_s` param
-    - **▾** expands it to edit its params with `SchemaForm` (name `turn.<i>.params`); a module with no params has nothing to expand
-    - **Move up** / **Move down** buttons (the keyboard way to reorder), and **Remove**
-    - a module the catalog doesn't know any more shows as "Unknown phase “<key>”" and can only be removed (like `ModuleListField`)
-  - **Reorder by drag** within one pipeline (`@dnd-kit/sortable`, pointer only, a small move to start). Phases don't move between Setup and Turn (confirmed 2026-11-12).
-  - **Adding (`ModulePalette`):** every catalog phase with its name, description and an "interactive" badge, and two buttons, **Add to Setup** and **Add to Turn**. It adds the phase with its default params (`defaultParams`) at the end; in Turn, before a final `end_turn` (confirmed 2026-11-12). The client doesn't hide modules that don't belong in Setup: the server's error says why.
-  - **Turn order:** a read-only strip under the pipelines that lists the turn's phases in order, as the in-game phase tracker (F5) will.
-- **Validation:**
-  - After each change, debounced (500 ms), `POST /api/rulesets/validate {definition}` with the form's current definition. A newer change cancels the older request.
-  - The header shows "Checking…", "No problems", or "N problems" with the list of messages.
-  - **Each error goes where its `path` points:**
-    - a setting (`["board", "lanes"]`) → under that field
-    - a phase param (`["turn", 2, "params", "time_limit_s"]`) → under that field in the phase's `SchemaForm`; the collapsed phase shows an error mark
-    - a phase or its key (`["turn", 2]`, `["turn", 2, "key"]`) → on the phase item
-    - a pipeline rule (`["turn"]`, `["setup"]`) → under the pipeline's heading
-    - anything else (`["schema_version"]`) → only in the header list
-  - The messages are the server's (`RuleError.message`). The client checks nothing about the rules itself.
-- **Save:**
-  - **a new rule set:** `POST /api/rulesets {name, definition}`, then the address becomes `/rules/:id` (replace, with no unsaved-changes prompt)
-  - **an existing one:** `PATCH /api/rulesets/{id} {name, definition}`. The definition is always the whole one.
-  - Save is never disabled by the validation (proposed): the server decides.
-  - **server errors:**
-    - `invalid_ruleset` (422, with `errors`): shown exactly like the `/validate` errors
-    - a name error goes on the name field (`showServerError`)
-    - `ruleset_not_found`: deleted elsewhere; the page shows not-found
-  - After a save, the form takes the server's normalized definition (defaults filled in).
-- **The default rule set** (`/rules/:id` of the system one) is read-only, like an origin template: every field disabled, no palette, no reordering or removing, the phases still expandable to read their params. It says "This is the default rule set. Duplicate it to make your own." with **Duplicate**.
-- **Unsaved changes:** the rule set is dirty while its name or definition differs from the last save. Leaving asks first (`useBlocker`), and closing the tab gets the browser's prompt, as in the deck builder.
-- **Delete** asks first, goes to `/rules`, and says when the share link stops working.
+### Hooks: how modules plug in
+The core never checks a module's key (coding-standards §2). The base classes get hook methods with do-nothing defaults, and the core calls them for every module involved:
+- **`PhaseModule`:**
+  - `run(ctx, params)` for automatic phases
+  - for interactive ones, who may act and which action kinds are allowed, both read from `params`
+- **`FeatureModule`:**
+  - `must_be_attacked_first` (taunt) and `ready_when_summoned` (charge)
+  - `attack_lanes` (ranged)
+  - `damage_taken` (armor)
+  - `field_bonus(creature, section)` (field_affinity), `on_damage_dealt` (lifesteal) and `on_death` (deathrattle)
+- **`SpellModule`:** `targets(ctx, caster)` and `resolve(ctx, caster, card, target)`.
+- **`FieldEffectModule`:**
+  - `on_game_start` (section_hp_bonus)
+  - `field_bonus(creature, section)` (stat_bonus), asked again whenever a creature changes section or its section is conquered
+  - `move_uses_action` (free_move)
+  - `cost_change` (mana_discount)
+  - `on_turn_start` (regeneration)
+  - `spell_damage_bonus` (spell_power)
+  - `attacker_penalty` (attacker_penalty)
+- **`EngineContext`** is the only thing hooks use to change the game: draw, damage, heal, summon, move, destroy, change mana, emit an event. It also counts steps and trigger depth (§7.7).
 
-### Sharing and import
-- **`ShareDialog`** gets a third kind, `ruleset` (`POST`/`DELETE /api/rulesets/{id}/share`). It opens from the rules list and the editor, for the user's own saved rule sets. The default can't be shared (the server answers 403), so it has no Share button.
-- **Import page (`/share/:code`), `kind: "ruleset"`:**
-  - the preview shows a read-only summary: the settings and both pipelines (`RulesetSummary`, the same pieces as the editor's read-only mode)
-  - **Import to my library** is now offered: "Copies the rule set into your library. Your copy won't change when the author edits theirs." It goes to `/rules/:id`.
-  - This removes F2's "Rule sets can be imported once the rules editor is ready."
+The exact signatures are settled while building.
 
-### Changes to F2 code
-- **`useLeaveGuard` and `LeaveGuardDialog`** move from `features/decks/` to `ui/`, since both editors use them. The dialog's text becomes a prop ("Your changes to this deck will be lost." / "… to this rule set …").
-- **`ShareKind`** in `useShare.ts` adds `"ruleset"`, and its refresh covers `["rulesets"]`.
-- **The import page** handles the ruleset import (above), and `useImportShare` caches the imported ruleset like a deck.
-- **The deck builder's validity panel** lists new rule sets automatically, since every ruleset change refreshes `["rulesets"]`.
+### Events (backend_plan §7.6)
+- **Types:**
+  - `game_started`, `turn_started`, `phase_changed`
+  - `card_drawn`, `deck_empty`, `card_discarded`, `mana_changed`, `card_played`
+  - `creature_summoned`, `creature_moved`, `attack`, `damage`, `heal`, `stats_changed`, `creature_died`
+  - `section_hp_changed`, `section_conquered`
+  - `player_ready`, `game_over` (`winner`, a seat or null for a draw, and `end_reason`)
+- **Hidden information:** an event that reveals it (the card in `card_drawn` and `card_discarded`) carries the seat that may see it. `events_for(events, seat)` gives the other seat the event without the card.
 
-### API hooks
-- **`api/hooks/useRulesets.ts`** (it has `useRulesets` and `findDefaultRuleset`) adds:
-  - `useRuleset(id)` (`["rulesets", "detail", id]`)
-  - `useCreateRuleset`, `useUpdateRuleset` and `useDeleteRuleset`, which refresh `["rulesets"]`
-  - `useRulesetValidation(definition)`: the debounced `/validate` call (a query keyed by the definition, so it cancels and caches)
-- **Types** come from `schema.d.ts` (`RulesetOut`, `RulesetDefinition`, `RuleError`, `RulesetValidation`, `PhaseOut`); no regeneration is expected, since M4's types arrived in F2.
+### Views and replays (backend_plan §7.9)
+- **`view_for(state, seat)`:**
+  - the player's own hand in full
+  - the opponent's hand as a count
+  - both decks as counts (confirmed: the own deck's contents stay hidden too)
+  - the board, both players' mana, the turn, the active seat
+  - the current phase (key, interactive, actor, allowed kinds, `time_limit_s`) and the ready flags
+  - the status and winner, and `version`
+- **Replays:** the ruleset, both deck snapshots, the seed and the action log give back every state. `replay(...)` reruns them.
 
-### Fake API for tests (MSW)
-- **`test/deckHandlers.ts`** (or a new `test/rulesetHandlers.ts`): `/api/rulesets` create, get, PATCH (403 on the default) and delete, and `POST /api/rulesets/validate` with a few of the server's rules, enough for the UI's flows: an out-of-bounds `board.lanes`, `end_turn_missing`, `end_turn_not_last`, `turn_needs_interactive_phase`, `setup_phase_not_allowed`, `unknown_module` and one `invalid_params`.
-- **`test/shareHandlers.ts`:** share and revoke for rulesets.
-- **`test/catalogFixture.ts`:** check that it lists all six phases with their params schemas.
+### Errors and limits (backend_plan §7.7)
+- **`IllegalAction(reason)`:** `game_over`, `not_your_turn`, `not_allowed_now` (the phase or `allow` forbids it), `unknown_card`, `not_enough_mana`, `slot_occupied`, `invalid_target`, `creature_exhausted` and `already_moved`.
+- **Limits:**
+  - at most 1000 engine steps per action, and a trigger chain at most 20 deep
+  - Going past either rejects the action with `engine_limit`, and leaves the state as it was.
+  - The engine doesn't log (M6's service logs it).
+- **`apply_action` never changes the state it's given;** it returns a new one.
 
-### Drag-and-drop
-- **`@dnd-kit/sortable` 10.0.0** (frontend_plan §1), exact; it needs `@dnd-kit/core` ^6.3.0, and 6.3.1 is installed. Check for a newer release before installing.
-- Pointer sensor only, like F2: the Move up/down buttons are the keyboard path.
+### Tests (backend_plan §12)
+- **Unit, in `tests/engine/`:**
+  - every module's hooks
+  - the runner: Setup for both players, the bonus card, turn flow, both mana modes, `actor: both`, the hand limit, an empty deck, surrender, game over
+  - running out of cards: a win on sections left, and a draw
+  - field bonuses: on summon, on a move in and out of a conquered section, and lost when a section is conquered (HP never dropping below 1)
+  - combat, targeting and the limits
+- **Board sizes:** scripted full games with 1, 3 and 5 lanes reach `game_over`, with `ranged` at the edges.
+- **Golden replays:** `tests/fixtures/replays/*.json`, each with the ruleset, decks, seed, actions and the expected final state. `UPDATE_GOLDEN=1 pytest …` rewrites them, so changes show in review (confirmed).
+- **Random games (property test):**
+  - seeded random games, with no new dependency such as Hypothesis
+  - every action from `legal_actions` is accepted
+  - random other actions get `IllegalAction`
+  - the state survives a JSON round-trip
+- **Builders:** `tests/engine/builders.py` makes snapshots, decks and states for tests.
 
 ### Logging
-- **No new events.** API failures go through `api.request_failed`, and the server logs ruleset changes and shares.
-
-### From M4 (what the server gives)
-- **Phases in the catalog** (`GET /api/catalog` → `phases: [{key, name, description, params_schema, interactive}]`):
-  - `action_phase` (interactive): `actor` (active/both), `allow` (play, move, attack: checkboxes), `time_limit_s` (10–600, default 90)
-  - `draw`: `count` (1–5)
-  - `gain_mana`, `lane_combat`, `discard_to_hand_limit` and `end_turn`: no params
-- **`RulesetDefinition`:** `schema_version`, `board`, `deck`, `mana`, `hand`, `setup`, `turn`; every section is required in responses (F2's schema fix). Bounds and pipeline rules: backend_plan §6.
-- **`POST /api/rulesets/validate`** always answers 200 `{valid, errors: [{path, code, message}], definition}`; `definition` is the normalized one when valid, else null. A save with errors gets 422 `invalid_ruleset` with the same `errors`.
-- **The default** (`system_key: "default"`) is read-only: PATCH, DELETE, share and revoke answer 403 `system_ruleset_read_only`.
+None: the engine is pure. `tests/engine/test_no_logging.py` already checks it. M6's service logs the engine's results.
 
 ## Done when
-- [x] **Rules list:** the default, then the user's own, with summaries and the shared mark; View/Edit, Duplicate, Share and Delete.
-- [x] **Rules editor:**
-  - a new rule set starts from the default, or from any rule set with Duplicate, and is created on Save
-  - every setting can be edited, and the board thumbnail follows lanes and slots
-  - phases can be added from the palette, set up, reordered by drag and by Move up/down, and removed
-  - `/validate` problems show inline at their path, and in the header list
-  - Save shows `invalid_ruleset` errors the same way; leaving with unsaved changes asks first
-  - the default is read-only, with Duplicate
-- [x] **Sharing:** own rule sets can be shared and revoked; a shared rule set's preview shows its settings and phases, and importing lands on the copy in the editor.
-- [x] **Checks pass:** `npm run lint`, `format:check`, `typecheck`, `test` and `build`. `npm run e2e` (with `--workers=1` until the dev nginx is fixed) passes with the new rules spec. Some runs needed `--retries` for the nginx stalls.
-- [ ] **Checked by hand** through nginx: duplicate the default, change the lanes, break and fix the turn (remove End turn, add it back), reorder by drag, save, reload; share it and import it as another user. Done in a scripted browser on 2026-11-13: duplicate, lanes, the broken and fixed turn, save, share, the list and the read-only default. The e2e spec covers the drag, the reload and the import. Still to do: a look by hand in a real browser.
+- [x] `start_game`, `legal_actions`, `apply_action` and `view_for` play the default ruleset with two decks to `game_over`.
+- [x] Every starter module works, with unit tests: 6 phases, 7 features, 7 spells, 7 field effects.
+- [x] `attacker_penalty` replaces `stat_bonus` on `enemy`, and the migration converts stored origins.
+- [x] Both mana modes, `actor: both` phases, the hand limit and empty decks work as decided.
+- [x] A game whose players run out of cards and creatures ends on sections left, or in a draw.
+- [x] Field bonuses follow the section: counted on summon and move, lost on conquest.
+- [x] Full games with 1, 3 and 5 lanes reach `game_over`.
+- [x] Golden replay tests pass, and the random-game test passes.
+- [x] The engine stays pure (no I/O, clock or logging).
+- [x] **Checks pass:** `pytest`, `ruff check .`, `ruff format --check .` and `mypy app tests`.
 
 ## Decisions
-Confirmed with the user on 2026-11-12:
-- **"Load" is Duplicate from the list.** Each rule set, the default too, has Duplicate (`/rules/new?from=<id>`). There is no Load button in the editor; frontend_plan §10 (UC5) is updated.
-- **Click to add, drag to reorder.** The palette's buttons add a phase to Setup or Turn (in Turn, before a final `end_turn`). Dragging only reorders within one pipeline; Move up/down buttons do the same from the keyboard.
+Confirmed with the user on 2026-11-13:
+- **An empty deck:** a draw from it does nothing; a `deck_empty` event says so. No fatigue.
+- **The hand limit:** draws never fail; the `discard_to_hand_limit` phase discards the newest cards down to the maximum. Without it there's no limit.
+- **`lane_combat`:** the active player's creatures that can still attack do so on their own, lane by lane (taunt first, then the first creature, then the section).
+- **Moving:** to any empty slot of the owner's, once per turn.
+- **Mana modes** (with F3): `grow` and `restore`, and a player's first turn has `mana.start` (backend_plan §7.3).
 
-Proposed by this spec, confirmed with the user on 2026-11-13:
-- **`/rules/new` starts from the default definition** with an empty name, and the default's own page is read-only with Duplicate (like origin templates).
-- **No rule bounds on the client.** The debounced `/validate` reports every bound at its field, so the bounds aren't copied into `bounds.ts`. Phase params keep `SchemaForm`'s catalog checks ("Use 600 or less."), as in the card editor (confirmed 2026-11-13).
-- **Save is never disabled by the validation.** The server decides, and a 422 shows the same inline errors.
-- **The validation runs debounced (500 ms)** after every change, as a query keyed by the definition.
-- **The leave guard moves to `ui/`**, shared by the deck builder and the rules editor.
-- **Shared rule sets become importable** (F2 left them preview only), landing on `/rules/:id`.
-- **The turn-order strip** (frontend_plan §4.3's "Preview turn") is part of F3: a read-only list, no game-state simulation.
+Confirmed with the user on 2026-11-14 (comments on this spec):
+- **Imports:** no special limit beyond coding-standards §2; the engine imports what it needs.
+- **Out of cards:** when both players have no cards in deck or hand and no creatures are on the board, the player with more sections left wins; the same number is a draw.
+- **Conquered sections** still take their owner's creatures, but give them no origin bonus. A player's creatures never leave their half of the board.
+- **Field bonuses follow the section:** counted when a creature is summoned or moved in, and lost when the section is conquered.
+
+Confirmed with the user on 2026-11-14 (the spec's proposals, second round):
+- **Seats, not users:** seat 0 goes first, and M6 decides who sits where.
+- **Our own PRNG** (SplitMix64), its state an integer in `GameState`.
+- **Setup runs for both players,** seat 0 first; the second player's bonus card comes right after Setup.
+- **One action per creature per turn** (an attack or a move). Every creature gets its action back at the start of each turn, either player's.
+- **`free_move`:** a move needs only that the creature hasn't moved this turn (changed from the proposal).
+- **Summoning sickness** unless `charge`, tokens included.
+- **Losing an HP bonus never kills:** HP drops only to the new maximum, and never below 1.
+- **Penalties from the opponent's origin** become a new field effect, `attacker_penalty`, which hits a creature that attacks a section that isn't conquered (changed from the proposal; see Features and field effects). `stat_bonus` keeps `own_origin` and `all_own`.
+- **Conquered sections** can't be healed or damaged again.
+- **Both players losing their last section at once** is a draw (changed from the proposal).
+- **`lane_combat` and `ranged`:** the own lane first, then the other attack lanes when the own lane has nothing to hit (changed from the proposal).
+- **Views show both decks as counts,** the player's own included.
+- **Golden fixtures** are rewritten with `UPDATE_GOLDEN=1`.
+- **The random-game test uses fixed seeds**, with no Hypothesis.
+
+Choices made while planning (2026-11-14):
+- Module hooks are instance methods on a module built with its parsed params (`registry.build`).
+- Deck uids are given after the shuffle, and `events_for` hides the uid with the card, so a uid never reveals a card.
+- A token copies the spell's name and art, with the caster's origin and no abilities.
+- Lifesteal heals the size of the hit after armor or the penalty.
+- The own hand in `view_for` carries each card's current cost (after `mana_discount`).
+- `apply_action` checks the specific reasons first, then requires the action to be in `legal_actions`.
+- `legal_actions` and its checks live in `legality.py`, and the view in `views.py`; `runner.py` re-exports them.
 
 ## Tasks
 Order:
-1. `@dnd-kit/sortable`, routes and nav
-2. hooks and the fake API
-3. the leave guard move, and `ShareKind`
-4. rules list
-5. editor: settings form and board thumbnail
-6. editor: pipelines, palette and drag
-7. editor: validation display, save and the read-only default
-8. sharing and the import page
-9. e2e
-10. docs
+1. snapshots, state and the PRNG
+2. events, actions, `IllegalAction` and `EngineContext`
+3. the runner: `start_game`, walking the pipelines, the phases and the turn flow
+4. combat and targeting
+5. the hooks: features, spells and field effects
+6. `legal_actions`, `apply_action` and the limits
+7. `view_for`, event filtering and `replay`
+8. board-size, golden and random-game tests
+9. docs
 
 Each step comes with its tests.
 
-### Setup
-- [x] Check `@dnd-kit/sortable`'s newest release and its peer range, then install it with an exact version.
-- [x] Routes: `/rules`, `/rules/new` and `/rules/:id`. Add Rules to the nav.
-
-### Hooks and fake API
-- [x] `useRuleset`, `useCreateRuleset`, `useUpdateRuleset`, `useDeleteRuleset` and `useRulesetValidation`; `ShareKind` adds `ruleset`.
-- [x] The fake API: ruleset CRUD, a simplified `/validate`, and ruleset share and revoke.
-
-### Rules
-- [x] Pure helpers, with unit tests:
-  - `insertPhase` (at the end, or before a final `end_turn`) and the move helpers
-  - `errorsByPath`: `RuleError`s grouped for the settings, the phases, the pipelines and the header
-  - `rulesetSummary` (the list's one-line summary) and the "<name> copy" name
-- [x] `RulesListPage`.
-- [x] `RulesEditorPage` and `RulesForm`: the header, `RulesSettingsForm` with `BoardThumbnail`, `PhasePipeline`, `PhaseItem`, `ModulePalette` and `TurnOrderStrip`.
-- [x] Validation status and inline errors; save and its errors; the leave guard; delete; the read-only default.
-
-### Sharing
-- [x] `ShareDialog` for rulesets, from the list and the editor.
-- [x] `ImportPage`: the ruleset summary (`RulesetSummary`), the import, and where it lands.
+### Engine
+- [x] `attacker_penalty`, `stat_bonus` without `enemy`, and the data migration for stored origins.
+- [x] `snapshots.py`, `state.py`, `rng.py` (with a test that a seed gives a fixed sequence).
+- [x] `events.py`, `actions.py`, `context.py`.
+- [x] `runner.py`: `start_game`, Setup, the bonus card, turns, the six phases.
+- [x] `combat.py`, `targets.py`.
+- [x] The hooks on the module base classes in `registry.py`, and in every module file.
+- [x] `legal_actions`, `apply_action`, the step and depth limits, `view_for`, `events_for`, `replay`.
 
 ### Tests
-- [x] **Unit:** the pipeline helpers, `errorsByPath` and `rulesetSummary`.
-- [x] **Pages (Vitest and MSW):**
-  - **`RulesListPage`:** the default and own rule sets, the summaries, Duplicate, delete, the shared mark
-  - **`RulesEditorPage`:**
-    - a new rule set from the default, a duplicate, and an existing one
-    - the settings and the thumbnail
-    - adding (before `end_turn`), Move up/down, removing, editing params
-    - validation errors at each kind of path, and the header list
-    - the Save payload, `invalid_ruleset`, and not-found
-    - the read-only default, and the unsaved-changes prompt
-  - **`ImportPage`:** a ruleset preview and its import
-  - **`ShareDialog`:** a ruleset
-- [x] **e2e** (`e2e/rules.spec.ts`): duplicate the default, change the lanes, remove End turn and see the error, add it back, add a Draw and drag it into place, set a time limit, save, reload and see the values. A second test (two contexts) shares a rule set and imports it.
+- [x] Unit tests per module and for the runner, combat and targeting.
+- [x] Board sizes 1, 3 and 5.
+- [x] Golden replays (two or three: the default rules, `restore` mana with `actor: both`, a 1-lane game with ranged and taunt).
+- [x] Random games with fixed seeds, and the JSON round-trip.
 
 ### Docs
-- [x] [frontend_plan.md](frontend_plan.md):
-  - §1: `@dnd-kit/sortable` installed
-  - §2: the `rules/` files, and the leave guard in `ui/`
-  - §3: `/rules/new?from=`, and the list's contents
-  - §4.2a: rule sets can be imported
-  - §4.3: click to add, drag to reorder, the read-only default, how errors are placed, no client bounds
-  - §7: F3 done
-  - §10: UC5 is Duplicate from the list
+- [x] [backend_plan.md](backend_plan.md):
+  - §0 (win condition): the out-of-cards ending and draws
+  - §1 and §11: M5 done
+  - §3: the engine's files
+  - §7.2: seats, field effects read from the origin, and `field_bonus`
+  - §7.3: Setup for both players, the turn start, the bonus card
+  - §7.4: one action per creature, and moving
+  - §7.5: `lane_combat`, the hand limit, empty decks, conquered sections, bonuses that follow the section, and the ways a game ends
+  - §7.6: the event list
+  - §7.7: the reasons
+  - §9.2: `game_over`'s `winner` can be null (a draw)
+  - §12: rewriting golden fixtures
+- [x] [frontend_plan.md](frontend_plan.md): the game-over screen (F5) shows a draw, and the board shows the field bonus a creature loses on a conquered section.
+- [x] Module descriptions that the decisions sharpen, for example `discard_to_hand_limit` ("the newest cards").
 - [x] Update this file, and write the session file.
 
-## Decided while building (2026-11-13)
-- **Validation errors stay out of React Hook Form.** `setError` on a path with no input (`turn`, `turn.2`) would stop `handleSubmit`, so Save would be blocked. `placeRuleErrors` sorts the errors, `catalog/outsideFieldErrors.ts` hands them to `useFieldError` (the form's own error first), and a `RuleErrorsContext` serves the phases and pipelines.
-- **The validation query** is keyed by the definition's JSON, outside `["rulesets"]` (a save doesn't recheck), with `staleTime: Infinity` and the previous answer kept while the next one loads. A refused save (`invalid_ruleset`) writes its errors into that query for the sent definition, so they show the same way, plus "Couldn't save: fix the problems listed above."
-- **The header's list says where each error is** ("Lanes: …", "Turn, phase 3 (Action phase): …"), since the server's messages alone ("Input should be less than or equal to 5") don't.
-- **The default's page runs no validation:** it can't change.
-- **Phase summaries are generic:** `describeParams` gives "Draw · Count 1", not "Draw · 1 card", so no module gets text of its own.
-- **A phase the catalog doesn't know** has no handle and no Move buttons, only Remove.
-- **Focus:** a Move button that turns disabled at an end hands the focus to the other one; Remove gives it to the pipeline's heading. A hidden live region says "Draw was moved to position 1 of 4."
-- **The board thumbnail draws up to 10** lanes and slots. That's a drawing limit, not a rule; past it the thumbnail says "No board preview for these numbers."
-- **The palette's buttons** say "Add to Setup" and are named "Add Draw to Setup" with `aria-label`: a hidden span in the middle of the text showed as a double space.
-- **Small shared changes:** `copyName` in `api/bounds.ts` (the origin editor uses it too), an optional `ref` on `ui/IconButton`, `ui/dragDistance.ts` (5 px, both drag areas), `ui/useDebouncedValue.ts`.
-- **The fake API:** `test/rulesetHandlers.ts` (the list moved there from `deckHandlers.ts`), all six phases in `catalogFixture.ts`, `time_limit_s` in the fixture's action phase, and `test/rulesEditor.ts` helpers.
-
-## Added after the first build (2026-11-13, asked by the user)
-- **Mana mode:** a new rules setting, `mana.mode`:
-  - `grow` (the default, Hearthstone-style): the maximum rises by Mana per turn, up to Maximum mana, and mana refills
-  - `restore`: a player gets Mana per turn back, up to Maximum mana, and unspent mana carries over
-  - Either way, a player's first turn has Starting mana.
-- **Backend:** `ManaRules.mode` in `schemas/rules.py`, the `gain_mana` description, and tests.
-  - Definitions stored before it read as `grow` (responses always go through the schema), so there is no data migration.
-  - The seed migration's literal is left as it is; the engine (M5) applies the mode, as backend_plan §7.3 says.
-- **Frontend:** `schema.d.ts` regenerated, and a "Mana each turn" radio group (`ManaModeField`) in the Mana section, with a hint for the chosen mode.
-
 ## Out of scope
-- **A "Load from…" button in the editor** (Duplicate covers it; confirmed 2026-11-12).
-- **Dragging from the palette, or between Setup and Turn** (confirmed 2026-11-12).
-- **A rule sets tile on the dashboard.** The list's `total` includes the default, so it needs its own count; it can come with F4's room creation.
-- **Simulating a turn** or a whole game from the rules (F5's board shows the real thing).
-- **Editing the default rule set** (the server keeps it read-only).
-- **Ruleset `schema_version` migrations** on the client (`migrate()` is server-side).
+- **Rooms, WebSocket, Redis, timers and reconnects** (M6). M6 also checks the ruleset and decks when a game starts, and turns `time_limit_s` into a deadline.
+- **Saving finished games** and their replay endpoint (M7). The `games` table will need a nullable winner for draws.
+- **The game board** (F5).
+- **New modules,** fatigue, burning cards, and commit-reveal for `actor: both` (backend_plan §13).
+- **Balancing** module numbers.
 
 ## Notes
-- **What already exists:**
-  - `catalog/SchemaForm` renders every phase param type (integers, enums, and `allow` as checkboxes); `defaultParams` and `describeParams` are in `catalog/schemaFields.ts`.
-  - `catalog/ModuleListField` shows how an unknown module is handled, but it forbids repeats and has no order, so the pipelines need their own component.
-  - `useRulesets` and `findDefaultRuleset` (F2), `ShareDialog`, the import page, and `useLeaveGuard`.
-  - The origin editor's `?from=<id>` duplicate and read-only template are the pattern for the default rule set.
-- **Error paths and the form:** with React Hook Form holding the definition (`board.lanes`, `turn.2.params.time_limit_s`), a `RuleError.path` joined with dots is the field's name, so `SchemaForm`'s fields can show their errors through `useFieldError`. After a reorder, the old errors may point at the wrong phase until the next validation, a moment later.
-- **The server's messages** are written for users (for example "A turn needs a phase where players act, such as 'action_phase'"), so the UI shows them as they are.
+- **Coding standards for the engine:**
+  - no clock, no I/O, no logging
+  - randomness only through `rng.py`
+  - the core never branches on a module key
+  - modules come with tests
+- **What exists:**
+  - `registry.py` (the module classes, `ModuleRef`, `validate_params`) and every starter module's declaration, with no behaviour yet
+  - `cost.py`, `tests/engine/test_registry.py`, `test_modules.py` and `test_no_logging.py`
+- **Cards:** a creature has 0–2 features in `abilities`; a spell has exactly one effect there (`card_service`).
+- **The default ruleset** is `RulesetDefinition()`: 3 lanes of 3 slots, 20 HP per section, 30-card decks, mana 1 / 1 / 10 `grow`, Setup draws 3, and the turn is Gain mana, Draw 1, Action phase (90 s), End turn.
 
 ## Open questions
-- None for F3. The dev nginx stall is a separate fix for the user to decide (F2 session file).
+None.
