@@ -7,8 +7,10 @@ from sqlalchemy.orm import selectinload
 
 from app.core.config import Settings
 from app.core.errors import AppError
+from app.engine.snapshots import CardSnapshot, DeckSnapshot, OriginSnapshot
 from app.models.card import Card
 from app.models.deck import Deck, DeckCard
+from app.models.origin import Origin
 from app.schemas.common import PageParams
 from app.schemas.deck import (
     MAX_DECK_SIZE,
@@ -18,8 +20,11 @@ from app.schemas.deck import (
     DeckSummaryOut,
     DeckUpdate,
 )
+from app.schemas.room import CopiesProblem, DeckProblem, NeutralProblem, ProblemCard, SizeProblem
+from app.schemas.rules import DeckRules
 from app.services import card_service, origin_service
 from app.services.common import get_owned, paginate
+from app.storage.client import public_url
 
 # Loads a deck's rows and their cards in two extra queries.
 WITH_CARDS = selectinload(Deck.cards).selectinload(DeckCard.card)
@@ -38,10 +43,83 @@ def deck_out(deck: Deck, settings: Settings) -> DeckOut:
     return DeckOut(**summary.model_dump(), cards=deck_card_outs(deck, settings))
 
 
-async def list_decks(db: AsyncSession, user_id: UUID, page: PageParams) -> tuple[list[Deck], int]:
-    """Newest first. The cards aren't loaded: `card_count` is enough for a list."""
+async def list_decks(
+    db: AsyncSession, user_id: UUID, page: PageParams, with_cards: bool = False
+) -> tuple[list[Deck], int]:
+    """Newest first. Without `with_cards` the cards aren't loaded: `card_count` is enough for a
+    list."""
     stmt = select(Deck).where(Deck.owner_id == user_id).order_by(Deck.created_at.desc(), Deck.id)
+    if with_cards:
+        stmt = stmt.options(WITH_CARDS)
     return await paginate(db, stmt, page)
+
+
+def deck_problems(deck: Deck, rules: DeckRules, neutral_id: UUID) -> list[DeckProblem]:
+    """What keeps a deck (with its cards loaded) from being picked under a ruleset's `deck`
+    rules. The frontend's `deckProblems` checks the same, on the same cases
+    (`tests/fixtures/deck_rule_cases.json`)."""
+    entries = sorted(deck.cards, key=lambda entry: card_service.card_sort_key(entry.card))
+    problems: list[DeckProblem] = []
+    count = sum(entry.count for entry in entries)
+    if count != rules.size:
+        problems.append(SizeProblem(count=count, size=rules.size))
+
+    over_copies = [entry.card for entry in entries if entry.count > rules.max_copies]
+    if over_copies:
+        problems.append(CopiesProblem(max=rules.max_copies, cards=_problem_cards(over_copies)))
+
+    # A neutral deck's cards are its own origin, so only a deck of another origin breaks this.
+    if not rules.allow_neutral and deck.origin_id != neutral_id:
+        neutral = [entry.card for entry in entries if entry.card.origin_id == neutral_id]
+        if neutral:
+            problems.append(NeutralProblem(cards=_problem_cards(neutral)))
+    return problems
+
+
+def _problem_cards(cards: list[Card]) -> list[ProblemCard]:
+    return [ProblemCard(id=card.id, name=card.name) for card in cards]
+
+
+def deck_snapshot(deck: Deck, origin: Origin, settings: Settings) -> DeckSnapshot:
+    """The deck as a game starts from it: one card per copy, with art URLs, and its origin.
+    Later edits to the deck, its cards or its origin never reach a game (backend_plan §9.1)."""
+    cards: list[CardSnapshot] = []
+    for entry in sorted(deck.cards, key=lambda entry: card_service.card_sort_key(entry.card)):
+        cards += [_card_snapshot(entry.card, settings)] * entry.count
+    return DeckSnapshot(origin=_origin_snapshot(origin, settings), cards=cards)
+
+
+def _card_snapshot(card: Card, settings: Settings) -> CardSnapshot:
+    return CardSnapshot.model_validate(
+        {
+            "card_id": str(card.id),
+            "name": card.name,
+            "kind": card.kind,
+            "origin_id": str(card.origin_id),
+            "mana_cost": card.mana_cost,
+            "hp": card.hp,
+            "dmg": card.dmg,
+            "abilities": card.abilities,
+            "art_url": _art_url(card.art_key, settings),
+        }
+    )
+
+
+def _origin_snapshot(origin: Origin, settings: Settings) -> OriginSnapshot:
+    return OriginSnapshot.model_validate(
+        {
+            "origin_id": str(origin.id),
+            "name": origin.name,
+            "color": origin.color,
+            "icon": origin.icon,
+            "field_effects": origin.field_effects,
+            "background_art_url": _art_url(origin.background_art_key, settings),
+        }
+    )
+
+
+def _art_url(key: str | None, settings: Settings) -> str | None:
+    return public_url(settings.r2_public_base_url, key) if key else None
 
 
 async def get_deck(db: AsyncSession, user_id: UUID, deck_id: UUID, with_cards: bool = True) -> Deck:

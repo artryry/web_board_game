@@ -14,7 +14,11 @@ ActionKind = Literal["play", "move", "attack"]
 
 
 class _Frozen(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    # The last flag only marks every field required in the output JSON Schema (for the
+    # frontend's generated types, M6): the server always sends every field.
+    model_config = ConfigDict(
+        extra="forbid", frozen=True, json_schema_serialization_defaults_required=True
+    )
 
 
 class SlotRef(_Frozen):
@@ -78,10 +82,24 @@ class Surrender(_Frozen):
     type: Literal["surrender"] = "surrender"
 
 
-Action = Annotated[PlayCard | Move | Attack | EndPhase | Surrender, Field(discriminator="type")]
+class Abandon(_Frozen):
+    """The server's action for a player who stayed away too long: the other seat wins. It goes
+    in the log like any action, so a replay ends the same way, but no player can send it."""
 
-# Parses an action from a client message (M6).
+    type: Literal["abandon"] = "abandon"
+
+
+Action = Annotated[
+    PlayCard | Move | Attack | EndPhase | Surrender | Abandon, Field(discriminator="type")
+]
+# What a player may send: every action except `Abandon`.
+PlayerAction = Annotated[
+    PlayCard | Move | Attack | EndPhase | Surrender, Field(discriminator="type")
+]
+
 action_adapter: TypeAdapter[Action] = TypeAdapter(Action)
+# Parses an action from a client message (M6).
+player_action_adapter: TypeAdapter[PlayerAction] = TypeAdapter(PlayerAction)
 
 IllegalReason = Literal[
     "game_over",

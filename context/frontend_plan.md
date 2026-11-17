@@ -209,6 +209,7 @@ frontend/
   - **size:** the deck needs **exactly** `deck.size` cards. Fewer or more is a problem, but saving still works.
   - **copies:** no card above `deck.max_copies`.
   - **neutral:** when `deck.allow_neutral` is false, neutral cards can't be mixed into a deck of another origin. A neutral deck's cards are its own origin, so a neutral deck still passes.
+  - The backend's `deck_problems` (M6) checks the same; both run the cases in `backend/tests/fixtures/deck_rule_cases.json`, like the cost formula. (The server's problems name cards as `{id, name}`, this one by name.)
 - A small mana-curve chart, built from the users' own costs.
 - **Share dialog** (`features/share/ShareDialog`; decks and card groups use the same one). It opens from the deck list, the builder (a saved deck; with unsaved changes it says the saved version is shared) and each group in the card library's group panel, which also marks shared groups:
   - `POST /api/decks/{id}/share` (or `/api/card-groups/{id}/share`) returns `{share_code}`. Calling it again returns the same code.
@@ -256,9 +257,11 @@ frontend/
 
 ### 4.4 Lobby (`/room/:code` before the game starts)
 - A big invite code with a copy button and a copyable link.
-- Player slots for host and guest, each with a ready indicator.
-- A deck selector that offers only decks valid for this room's ruleset (the check runs on the client for display, and the server makes the final decision).
-- A ready button. When both players are ready, the server starts the game and the view switches to the board.
+- Player slots for host and guest, each with a connected and a ready indicator. The opponent's deck shows only as "chosen" (`has_deck`); its origin shows on the board once the game starts.
+- **A deck selector fed by the server:** `GET /api/rooms/{code}/decks` lists the user's decks with their `problems` under the room's ruleset (backend M6). Decks with problems are shown but can't be picked, with the problems as the reason. The server checks again on `select_deck` (`deck_not_playable` with the problems).
+- A ready button (`ready: true`, and `false` to take it back). Picking another deck clears it, and so does a disconnect. When both players are ready, the server starts the game and the view switches to the board.
+- **Leave:** the guest frees their seat (the socket closes with 1000); the host closes the room, and the guest sees "The host closed the room" (`room_closed`).
+- **During a game, an opponent who is away** (`away_since` in `room_state`) shows a countdown to `away_since + 60 s`, after which they lose (`abandoned`).
 
 ## 5. Game board
 
@@ -285,7 +288,7 @@ frontend/
 - **Surrender** asks for confirmation first.
 - **Field bonuses** (M5): a creature shows the HP and DMG its section's field gives it (`field_bonus` in the view). A conquered section gives none, so creatures in it lose that bonus (a `stats_changed` event animates it). Both decks show as counts only.
 - **Hand costs:** a hand card shows `cost` from the view, which already has the player's `mana_discount` in it. The board never works a discount out itself.
-- **`GameOverModal`** shows a win, a loss or a **draw** (`winner: null`), with the reason: conquered, surrender or out of cards. Out of cards means neither player has a card left and no creature is on the board; the player with more sections left wins.
+- **`GameOverModal`** shows a win, a loss or a **draw** (`winner: null`), with the reason: conquered, surrender, out of cards or **abandoned** ("Opponent left the game": they stayed away for 60 s). Out of cards means neither player has a card left and no creature is on the board; the player with more sections left wins.
 
 ### 5.2 Movement comes from the server
 - Each `game_state` message includes `legal_actions`. The store builds an index from it: source uid → list of `{action type, valid targets}`.
@@ -296,7 +299,7 @@ frontend/
 
 ### 5.3 Server-authoritative update cycle
 1. On drop, the client sends `{type: "action", seq, payload}` and marks the card as *pending* (a light spinner overlay). The UI doesn't move the card itself.
-2. The server replies with `events`. `eventQueue` plays them in order as Framer Motion animations: draw, summon, attack swing, damage numbers, death, section HP drop, conquest.
+2. The server replies with `events`. Their `seq` is the client's own `action` message that caused them (null for the opponent's actions and the timer's), so the client knows which pending card resolved. `eventQueue` plays them in order as Framer Motion animations: draw, summon, attack swing, damage numbers, death, section HP drop, conquest.
 3. The following `game_state` replaces the local view after the queued animations finish (or right away if animations are turned off).
 4. On `error`, the pending card snaps back and a toast shows the reason (for example "Not enough mana").
 
@@ -312,12 +315,16 @@ frontend/
 - **Logout** forgets the access token and the hint and clears the query cache, then calls `POST /api/auth/logout`, because only the server can delete an HttpOnly cookie. Removing the hint fires a `storage` event, which logs out the app's other tabs. The backend keeps refresh tokens stateless; revocation is a later backend task that needs no UI change.
 - Every way a session ends lands in one place (`onSessionEnd`). An intended logout (in this tab or another) sends the user to `/login` without a return page. An expired session or a deep link remembers the page, and the login goes back there.
 
-- `RoomSocket` (`ws/socket.ts`):
-  - connects to `/ws/rooms/{code}?token=…`
+- `RoomSocket` (`ws/socket.ts`), for the protocol in backend_plan §9.2:
+  - connects to `/ws/rooms/{code}` (no token in the URL) and sends `auth {token}` first, within 10 s
   - numbers outgoing messages with `seq`
-  - drops any `game_state` whose `version` is older than the current one
-  - reconnects with exponential backoff (1 s, 2 s, 4 s, up to 15 s), sends `resync` once reconnected, and shows a *Reconnecting…* banner meanwhile
+  - drops any `game_state` whose `view.version` is older than the current one
+  - sends `ping` about every 30 s, so idle proxies keep the socket open
+  - counts down to `deadline` with its clock corrected by `server_time`
+  - **close codes:** 4401 refreshes the token, then reconnects; 4403 and 4404 leave the room page ("You're not in this room" / "This room is gone"); 4409 means another tab took over (no reconnect, say so); 1000 after `room_closed` leaves the room; 1013 and anything else reconnect
+  - reconnects with exponential backoff (1 s, 2 s, 4 s, up to 15 s), gets the full state on connect, and shows a *Reconnecting…* banner meanwhile. A game counts the player as away while the socket is gone: they lose after 60 s.
   - refreshes the JWT before reconnecting if it has expired
+- The message types come from the generated `schema.d.ts` (`RoomStateMessage`, `GameStateMessage`, `ActionMessage`, …): the backend publishes them as OpenAPI components.
 - The Zustand `gameStore` holds `connection`, `room`, `view`, `version`, `legalActions` (with the index), `eventQueue`, `pendingAction`, `deadline` and `result`.
 - REST data (cards, decks, rulesets) stays in TanStack Query. Only live room and game state goes in Zustand.
 

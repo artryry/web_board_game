@@ -7,8 +7,10 @@ empty, because `app.schemas.rules` imports the registry and the engine imports t
 """
 
 from collections.abc import Sequence
+from typing import assert_never
 
 from app.engine.actions import (
+    Abandon,
     Action,
     Attack,
     EndPhase,
@@ -224,6 +226,9 @@ def _resolve(ctx: EngineContext, seat: Seat, action: Action) -> None:
     if isinstance(action, Surrender):
         ctx.end_game(other(seat), "surrender")
         return
+    if isinstance(action, Abandon):
+        ctx.end_game(other(seat), "abandoned")
+        return
     if isinstance(action, EndPhase):
         _end_phase(ctx, seat)
         return
@@ -233,6 +238,9 @@ def _resolve(ctx: EngineContext, seat: Seat, action: Action) -> None:
         _move(ctx, seat, action)
     elif isinstance(action, Attack):
         attack(ctx, ctx.creature(action.creature_uid), action.target)
+    else:
+        # A new action type needs its own branch here (and in legal_actions and check_action).
+        assert_never(action)
     resolve_deaths(ctx)
     check_game_over(ctx)
 

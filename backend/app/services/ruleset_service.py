@@ -67,8 +67,9 @@ async def get_own_ruleset(db: AsyncSession, user_id: UUID, ruleset_id: UUID) -> 
     return ruleset
 
 
-def _checked_definition(raw: RawDefinition) -> RulesetDefinition:
-    """The normalized definition. Unlike a deck, a ruleset can't be saved half-finished."""
+def checked_definition(raw: RawDefinition) -> RulesetDefinition:
+    """The normalized definition, or 422 `invalid_ruleset` with every error. Unlike a deck, a
+    ruleset can't be saved half-finished, and a room checks its ruleset again when created."""
     definition, errors = rules_service.validate_definition(raw)
     if definition is None:
         raise AppError(
@@ -93,7 +94,7 @@ async def _commit(db: AsyncSession, ruleset: Ruleset) -> None:
 
 async def create_ruleset(db: AsyncSession, user_id: UUID, data: RulesetCreate) -> Ruleset:
     ruleset = Ruleset(owner_id=user_id, name=data.name)
-    _set_definition(ruleset, _checked_definition(data.definition))
+    _set_definition(ruleset, checked_definition(data.definition))
     db.add(ruleset)
     await _commit(db, ruleset)
     return ruleset
@@ -104,7 +105,7 @@ async def update_ruleset(
 ) -> Ruleset:
     ruleset = await get_own_ruleset(db, user_id, ruleset_id)
     if data.definition is not None:
-        _set_definition(ruleset, _checked_definition(data.definition))
+        _set_definition(ruleset, checked_definition(data.definition))
     if data.name is not None:
         ruleset.name = data.name
     await _commit(db, ruleset)

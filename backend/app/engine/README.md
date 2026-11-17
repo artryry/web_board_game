@@ -72,6 +72,7 @@ apply_action(state, seat, action)
   new = state.clone(); ctx = EngineContext(new)
   _resolve:
     surrender   → the other seat wins
+    abandon     → the other seat wins (end_reason "abandoned"; only the server applies it)
     end_phase   → ready (actor: both) or move on → _advance
     play_card   → pay, then summon the creature or resolve the spell
     move        → has_moved, maybe exhausted, move, refresh the field bonus
@@ -189,7 +190,7 @@ The engine trusts these shapes: M6 checks the ruleset (`validate_definition`) an
 | `LoggedAction` | `seat`, `action` | One applied action. **Frozen.** |
 | `GameState` | `ruleset`, `seed`, `rng_state`, `turn_number`, `active_seat`, `phase`, `ready`, `players`, `sections[seat][lane]`, `status`, `winner`, `end_reason`, `next_uid`, `version`, `log` | `turn_number` is 0 in Setup. `winner` is a seat, or `None` for a draw. `version` is +1 per action. |
 
-Type aliases: `Pipeline`, `GameStatus` (`playing` / `finished`), `EndReason` (`conquered` / `surrender` / `out_of_cards`).
+Type aliases: `Pipeline`, `GameStatus` (`playing` / `finished`), `EndReason` (`conquered` / `surrender` / `out_of_cards` / `abandoned`).
 
 **`GameState.clone()`** is how `apply_action` gets a state it can change. It copies what the engine changes in place (the phase pointer, `ready`, players with their `deck` and `hand` lists, sections with their `slots`, each creature, and the `log` list). It **shares** what the engine never changes in place: the ruleset, snapshots, `ModuleRef`s, `CardInstance`s, `StatDelta`s and log entries. A full deep copy took most of each action's time and grew with the log (about 18 ms per action over a long bot game). With `clone()`, a whole action takes about 0.8 ms.
 
@@ -214,7 +215,10 @@ All models are frozen, so actions compare and hash by value. `legal_actions` ent
 
 `Target` is the union of all four; `AttackTarget` is creature or section.
 
-**Actions** (discriminated on `type`): `PlayCard(card_uid, target)`, `Move(creature_uid, to)`, `Attack(creature_uid, target)`, `EndPhase()`, `Surrender()`. `Action` is the union, and `action_adapter` parses one from a client message (for M6).
+**Actions** (discriminated on `type`): `PlayCard(card_uid, target)`, `Move(creature_uid, to)`, `Attack(creature_uid, target)`, `EndPhase()`, `Surrender()` and `Abandon()`.
+- `Action` is the union of all six; `action_adapter` parses one (logs, replays).
+- `PlayerAction` is the union without `Abandon`: what a player may send. M6's WebSocket parses client actions with `player_action_adapter`.
+- **`Abandon`** is the server's action for a player who stayed away from a game too long (M6). The other seat wins with `end_reason: abandoned`. It goes in the log as that seat's action, so a replay ends the same way. Like `Surrender`, `check_action` accepts it from either seat while the game is on; unlike it, it is never in `legal_actions`.
 
 **`IllegalAction(reason, message)`**, with `IllegalReason`:
 
@@ -333,7 +337,7 @@ Read-only helpers on a context:
 - **`check_game_over(ctx)`** (does nothing once the game is over):
   - **conquered:** a player with every section conquered loses. Both at once is a draw (`winner: None`).
   - **out of cards:** both decks and hands are empty, and no creature is on the board. The player with more sections that aren't conquered wins; the same number is a draw.
-  - (Surrender is handled by the runner.)
+  - (Surrender and abandon are handled by the runner.)
 
   It is called after every action, every automatic phase and every `lane_combat` attack.
 
@@ -459,6 +463,7 @@ All in `backend/tests/engine/`:
 | `scenarios.py` | the card pool, origins and rulesets of the full-game tests |
 | `test_rng.py`, `test_state.py` | reference outputs and shuffles; the JSON round trip and `clone()` |
 | `test_runner.py` | Setup, the bonus card, uids, turns, both mana modes, `actor: both`, the hand limit, an empty deck, surrender, every way a game ends |
+| `test_abandon.py` | `Abandon`: either seat wins for the other, after the end it's refused, never legal, `PlayerAction` refuses it, a replay ends the same way |
 | `test_combat.py`, `test_targets.py`, `test_field_bonus.py` | fights, armor, lifesteal, penalties, deathrattle, conquest; taunt, ranged, lane-combat targets; bonuses on summon, move and conquest |
 | `test_legality.py`, `test_limits.py`, `test_views.py` | every refusal reason, `free_move`, discounts; the step and depth limits; hidden information |
 | `test_phases.py`, `test_features.py`, `test_spells.py`, `test_field_effects.py`, `test_modules.py`, `test_registry.py`, `test_cost.py` | each module's hooks and declaration; the registry; the cost suggestion |

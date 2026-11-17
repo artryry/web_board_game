@@ -131,7 +131,7 @@ class RequestContextMiddleware:
         client = scope.get("client")
         fields: dict[str, Any] = {
             "method": scope["method"],
-            # Never the query string: the planned game socket carries the access token in it.
+            # Never the query string: it can carry secrets (a client that puts its token there).
             "path": scope["path"],
             "route": _route_template(scope),
             "status": status,

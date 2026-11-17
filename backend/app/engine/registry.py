@@ -117,7 +117,11 @@ class CostSpec(BaseModel):
 class StatDelta(BaseModel):
     """A change to a creature's HP and DMG, as hooks return it."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    # The last flag only marks the fields required in the output JSON Schema (a creature's
+    # `field_bonus` in the game socket's messages, M6).
+    model_config = ConfigDict(
+        extra="forbid", frozen=True, json_schema_serialization_defaults_required=True
+    )
 
     hp: int = 0
     dmg: int = 0

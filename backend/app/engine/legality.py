@@ -6,6 +6,7 @@ to be in `legal_actions`, so the two can never disagree.
 """
 
 from app.engine.actions import (
+    Abandon,
     Action,
     ActionKind,
     Attack,
@@ -97,7 +98,8 @@ def check_action(state: GameState, seat: Seat, action: Action) -> None:
     """Raises `IllegalAction` with the reason, if `seat` can't take `action` now."""
     if state.status != "playing":
         raise IllegalAction("game_over", "The game is over")
-    if isinstance(action, Surrender):
+    # Either seat may surrender, or be abandoned by the server, at any time.
+    if isinstance(action, Surrender | Abandon):
         return
     ctx = EngineContext(state)
     phase = ctx.current_phase()

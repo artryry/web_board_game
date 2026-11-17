@@ -18,17 +18,22 @@ from app.schemas.rules import RulesetDefinition
 
 Pipeline = Literal["setup", "turn"]
 GameStatus = Literal["playing", "finished"]
-EndReason = Literal["conquered", "surrender", "out_of_cards"]
+# `abandoned`: the server ended the game for a player who stayed away (M6).
+EndReason = Literal["conquered", "surrender", "out_of_cards", "abandoned"]
 
 
 class _State(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    # The last flag only marks every field required in the output JSON Schema (for the
+    # frontend's generated types, M6): the server always sends every field.
+    model_config = ConfigDict(extra="forbid", json_schema_serialization_defaults_required=True)
 
 
 class _Shared(BaseModel):
     """A part that clones share, so it can't be changed in place."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(
+        extra="forbid", frozen=True, json_schema_serialization_defaults_required=True
+    )
 
 
 class CardInstance(_Shared):

@@ -14,7 +14,11 @@ from app.engine.state import CardInstance, CreatureInstance, EndReason, Pipeline
 
 
 class _Event(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    # The last flag only marks every field required in the output JSON Schema (for the
+    # frontend's generated types, M6): the server always sends every field.
+    model_config = ConfigDict(
+        extra="forbid", frozen=True, json_schema_serialization_defaults_required=True
+    )
 
 
 class GameStarted(_Event):

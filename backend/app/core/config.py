@@ -42,6 +42,18 @@ class Settings(BaseSettings):
     # Only needed when the password isn't part of REDIS_URL (the local docker-compose Redis).
     # Managed Redis such as Upstash puts it in the URL, which then takes precedence.
     redis_password: SecretStr | None = None
+    # A command or connect that takes longer fails instead of hanging; a room's lock is held
+    # while its state is written.
+    redis_timeout_s: float = Field(default=5.0, gt=0, le=60)
+
+    # Rooms (backend_plan §9). A room lives this long after its last change, and a finished one
+    # this long after the game ends.
+    room_ttl_h: int = Field(default=24, ge=1, le=168)
+    finished_room_ttl_min: int = Field(default=10, ge=1, le=1440)
+    # How long a player can stay away from a running game before they lose it.
+    disconnect_forfeit_s: int = Field(default=60, ge=5, le=3600)
+    # How long a new game socket has to send its `auth` message.
+    ws_auth_timeout_s: float = Field(default=10.0, gt=0, le=60)
 
     # Cloudflare R2, accessed through its S3-compatible API.
     r2_endpoint: HttpUrl

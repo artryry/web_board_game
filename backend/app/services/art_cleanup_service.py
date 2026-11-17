@@ -7,8 +7,6 @@ yet has no row either, so objects younger than the grace period are always kept.
 
 import asyncio
 import time
-from collections.abc import Callable
-from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
@@ -18,6 +16,7 @@ from sqlalchemy import select, union
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
+from app.core.db import SessionFactory
 from app.core.logging_config import elapsed_ms, get_logger
 from app.models.card import Card
 from app.models.origin import Origin
@@ -25,8 +24,6 @@ from app.services import upload_service
 from app.storage.client import ArtKind, S3Client, delete_object, list_objects
 
 log = get_logger(__name__)
-
-SessionFactory = Callable[[], AbstractAsyncContextManager[AsyncSession]]
 
 # Set for one interval by the check that runs the sweep, so restarts and an instance overlapping
 # a deploy don't run it again.

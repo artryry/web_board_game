@@ -57,6 +57,31 @@ async def test_card_list_query_lists_filters_and_paging(client: AsyncClient) -> 
     assert not any(p["required"] for p in params)
 
 
+async def test_the_game_sockets_messages_are_components(client: AsyncClient) -> None:
+    # No route returns them, but the frontend's generated types need them (M6).
+    schemas = (await client.get("/api/openapi.json")).json()["components"]["schemas"]
+
+    for name in [
+        "AuthMessage",
+        "ActionMessage",
+        "ReadyMessage",
+        "RoomStateMessage",
+        "GameStateMessage",
+        "EventsMessage",
+        "ErrorMessage",
+        "GameOverMessage",
+        "PlayerView",
+        "GameOver",
+    ]:
+        assert name in schemas, name
+    # Discriminators are required in what the server sends, so the frontend can narrow on them.
+    assert "type" in schemas["GameOver"]["required"]
+    assert "type" in schemas["PlayCard"]["required"]
+    # One model, one schema: no "-Input"/"-Output" pairs.
+    assert not [name for name in schemas if name.endswith(("-Input", "-Output"))]
+    assert "abandoned" in schemas["GameOverPayload"]["properties"]["reason"]["enum"]
+
+
 @pytest.mark.parametrize("path", ["/openapi.json", "/docs", "/redoc"])
 async def test_old_schema_and_docs_urls_are_gone(client: AsyncClient, path: str) -> None:
     response = await client.get(path)

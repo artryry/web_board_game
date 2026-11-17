@@ -61,6 +61,15 @@ M5 (engine core) is done (2026-11-14):
 - `attacker_penalty` replaced `stat_bonus` with `applies_to: enemy` (§5). A data migration converted stored origins.
 - `tests/engine/` has unit tests per module, board-size games, golden replays (`tests/fixtures/replays/`) and random games (§12).
 
+M6 (rooms, WebSocket, Redis, timers) is done (2026-11-15):
+- Rooms REST under `/api/rooms` (§8) and the game socket `WS /ws/rooms/{code}` (§9.2): two players meet by code, pick decks that fit the room's ruleset, and play over the socket.
+- A room lives in Redis as one hash, written with a compare-and-set on its `rev` (§9.1). Its lock, cached copy, sockets and timers live in the process, and come back from Redis after a restart (§9.3, §10.1).
+- The turn timer, players away (60 s, then `abandoned`), reconnects and `resync`.
+- The engine gained `Abandon` and the `abandoned` end reason (§7.4).
+- `deck_service.deck_problems` checks a deck against a ruleset's `deck` rules, on the same cases as the frontend (`tests/fixtures/deck_rule_cases.json`); `deck_snapshot` copies a deck for a game.
+- The socket's messages are OpenAPI components, so `npm run gen:api` types them for F4 and F5.
+- Tests use a real Redis (database 15) and `httpx-ws`; CI has a Redis service (§12).
+
 ## 2. Stack
 
 | Concern | Choice |
@@ -88,14 +97,18 @@ backend/
       errors.py        AppError / UnauthorizedError + handlers ({"detail": {code, message}})
       security.py      password hashing, JWT encode/decode
       db.py            Base (with constraint naming convention), async engine + session factory
-      deps.py          get_db, get_redis, get_s3, get_current_user (CurrentUser), get_optional_user_id
+      deps.py          get_db, get_redis, get_s3, get_current_user (CurrentUser), get_optional_user_id,
+                       get_rooms and get_session_factory (these two also serve the game socket)
       codes.py         random share and room codes from a no-look-alike alphabet
+      clock.py         Clock (Unix ms, sleep_until) for room deadlines; tests move a fake one
+      tasks.py         spawn(): background tasks with an empty log context and their own fields
       logging_config.py  configure_logging, get_logger, redaction, StepTimer (§10.2)
       middleware.py    RequestContextMiddleware: request ids, the access line, unhandled errors
     models/            SQLAlchemy ORM: user, origin, card, card_group, deck, share_code, ruleset, game
     schemas/           Pydantic request/response DTOs
       rules.py         RulesetDefinition (versioned), RuleError, migrate()
       ruleset.py       ruleset create/update/out, validate request and result
+      room.py          room REST bodies, DeckProblem, the game socket's payloads, CloseCode
     api/               router.py (mounts everything under /api) + routers: health, auth, catalog,
                        origins, cards, card_groups, decks, rulesets, share, rooms, games, uploads,
                        client_logs
@@ -130,12 +143,15 @@ backend/
       rules_service.py validate_definition: every ruleset problem, with its path (§6)
       upload_service.py   presigned art uploads, art-key checks on save
       art_cleanup_service.py  the daily sweep of art no row references (§10.3)
-      room_service.py  room lifecycle: Redis <-> engine glue, timers
+      room_store.py    a room in Redis: the stored Room, load, compare-and-set save, TTLs
+      live_rooms.py    the in-process side: each room's lock, cache, connections and tasks
+      room_service.py  create, join, the lobby's decks, connect/disconnect, the lobby messages
+      game_service.py  the game: start, actions, turn timer, players away, the end (§9.3)
       share_service.py share codes, forking imports
       client_log_service.py  the browser's warnings and errors as `web.*` lines, rate-limited
     ws/
-      manager.py       connections per room, per-player send
-      protocol.py      message schemas
+      manager.py       the sockets by connection id, each with a send queue and a writer task
+      protocol.py      message envelopes, client-message parsing, the OpenAPI components
       handler.py       /ws/rooms/{code} endpoint
   alembic/
   scripts/start.sh     production entrypoint: migrations, then uvicorn
@@ -224,7 +240,8 @@ Notes:
   - The origin FKs can stay `RESTRICT`, because cards and decks are direct cascades from `users`, so they are gone before an origin's check runs.
   - Tests never commit, so they bring the deferred check forward with `SET CONSTRAINTS ALL IMMEDIATE`.
 - **Forks outlive their source.** An imported copy points only at its own copied origins (or system origins), so the author can delete the original origin, deck or group, or their whole account, and the copy stays as it is. It keeps the author's `art_key`, and the object stays as long as any row references it (§10.3).
-- **Art objects** are deleted by a daily sweep once no `cards.art_key` or `origins.background_art_key` references them and they are older than 24 h (§10.3). The `games` deck snapshots (M6, M7) hold art keys but don't keep the objects alive: a card deleted mid-game or replayed later can show the no-art look.
+- **Art objects** are deleted by a daily sweep once no `cards.art_key` or `origins.background_art_key` references them and they are older than 24 h (§10.3). Game deck snapshots (a room's in M6, `games` in M7) hold art **URLs**, built when the deck is picked, and don't keep the objects alive: a card deleted mid-game or replayed later can show the no-art look.
+- **`games` is M7's.** M6 keeps a game only in its room in Redis; M7 writes the row from the room when the game ends, with the room's `game_id` as its id. Its `winner_id` must allow null for a draw.
 
 ## 5. Module registry
 
@@ -381,7 +398,7 @@ Pipeline rules:
   - Deck cards are `p0-1`, `p0-2`, … in shuffled order, so a uid never reveals a card.
   - A creature keeps its card's uid.
   - Tokens are `t1`, `t2`, … from `next_uid`.
-- `status` (`playing` or `finished`), `winner` (a seat, or null for a draw) and `end_reason` (`conquered`, `surrender` or `out_of_cards`)
+- `status` (`playing` or `finished`), `winner` (a seat, or null for a draw) and `end_reason` (`conquered`, `surrender`, `out_of_cards` or `abandoned`)
 - `version`, which goes up by one after every applied action
 - `log`, the applied actions with their seats
 
@@ -430,6 +447,10 @@ replay(ruleset, decks, seed, log) -> list[GameState]
 | `attack` | `creature_uid`, `target` (a creature or a section) |
 | `end_phase` | — ; in an `actor: both` phase this means ready |
 | `surrender` | — (either player, at any time) |
+| `abandon` | — (M6) only the server applies it, for a player who stayed away from a game for 60 s (§9.3): the other seat wins with `end_reason: abandoned` |
+
+- `Action` is the union of all six, so logs and replays hold `abandon`. `PlayerAction` is the union without it: what the game socket accepts.
+- `abandon` is never in `legal_actions`; `check_action` accepts it from either seat while the game is on, like `surrender`.
 
 Targets are tagged by `kind`:
 - a slot: `{kind: "slot", seat, lane, slot}`
@@ -476,6 +497,7 @@ Targets are tagged by `kind`:
   - **conquered:** all of a player's sections are conquered, and the other player wins. If both players lose their last section in the same chain, it's a draw.
   - **out of cards:** both players have no cards in deck or hand, and no creature is on the board. The player with more sections that aren't conquered wins; the same number is a draw.
   - **surrender:** the other player wins.
+  - **abandoned** (M6): the server applies `abandon` for a player away for 60 s, and the other player wins.
 
   It is checked after every action, every automatic phase and every `lane_combat` attack.
 - **Hooks:** every module class has hook methods with do-nothing defaults (in `registry.py`). The engine calls them for every module involved, so the core never checks a module's key. Hooks change the game only through `EngineContext`.
@@ -492,14 +514,14 @@ Every change emits a typed event. The frontend plays these as animations.
 - `card_drawn`, `deck_empty`, `card_discarded`, `mana_changed`, `card_played`
 - `creature_summoned`, `creature_moved`, `attack`, `damage`, `heal`, `stats_changed`, `creature_died`
 - `section_hp_changed`, `section_conquered`
-- `player_ready`, `game_over` (`winner`, a seat or null for a draw, and `end_reason`)
+- `player_ready`, `game_over` (`winner`, a seat or null for a draw, and `end_reason`: `conquered`, `surrender`, `out_of_cards` or `abandoned`)
 
 `card_drawn` and `card_discarded` reveal a card: `events_for(events, seat)` removes the card, and its uid, for the other seat.
 
 ### 7.7 Safety limits and errors
 - At most 1000 engine steps per `apply_action`, and a chain of triggered effects at most 20 deep. Going past either rejects the action with `engine_limit`, and leaves the state as it was.
 - The engine doesn't log; the service that runs it does.
-- `IllegalAction` carries a machine-readable reason:
+- `IllegalAction` carries a machine-readable reason (the game socket sends it as `error.reason`, §9.2):
   - `game_over`, `not_your_turn`
   - `not_allowed_now`: the phase or its `allow` forbids it, or the player is already ready
   - `unknown_card`: not in the hand, or not one of the player's creatures
@@ -550,7 +572,7 @@ The OpenAPI schema is at `/api/openapi.json` and the Swagger UI at `/api/docs` (
 | Decks | `GET /api/decks` (summaries: `origin_id`, `card_count`, `share_code`), `POST /api/decks`, `GET/PATCH/DELETE /api/decks/{id}` (with `cards: [{card, count}]`), `POST /api/decks/{id}/share` → `{share_code}`, `DELETE /api/decks/{id}/share` (revoke) |
 | Rulesets | `GET /api/rulesets` (the default first, then mine; full `RulesetOut`s), `POST /api/rulesets {name, definition}`, `GET/PATCH/DELETE /api/rulesets/{id}` (the default is read-only), `POST /api/rulesets/validate {definition}` → always 200 `{valid, errors: [RuleError], definition}` (the normalized definition when valid, else null), `POST /api/rulesets/{id}/share` → `{share_code}`, `DELETE /api/rulesets/{id}/share` (revoke) |
 | Sharing | `GET /api/share/{code}` (preview), `POST /api/share/{code}/import` → 201. Any logged-in user can use a code, and lower-case input works. An import **forks** a copy into your library, in one transaction (see below). Only decks, card groups and rulesets have share codes: single cards are never shared. |
-| Rooms | `POST /api/rooms {ruleset_id}` → `{code}` (6 characters, no look-alike characters), `POST /api/rooms/join {code}`, `GET /api/rooms/{code}` |
+| Rooms | `POST /api/rooms {ruleset_id}` → 201 `RoomState` (with its `code`: 6 characters, no look-alike characters), `POST /api/rooms/join {code}` → `RoomState`, `GET /api/rooms/{code}` → `RoomState` (members only), `GET /api/rooms/{code}/decks` → `Page[RoomDeckOut]` (the user's decks in `/api/decks` order, each with its `problems` under the room's ruleset; members only). Lower-case codes work. See below and §9. |
 | History | `GET /api/games`, `GET /api/games/{id}` (with everything needed for a replay) |
 | Health | `GET /api/health` |
 | Client logs | `POST /api/client-logs {entries: [...]}` → 204. The browser's warnings and errors, logged as `web.<event>` lines. The access token is optional (it adds the user), and entries over the rate limit are dropped (§10.2). |
@@ -652,9 +674,20 @@ Content errors:
 | 422 | `unsupported_art_type` / `art_too_large` | upload request with a type other than png/jpeg/webp, or over `UPLOAD_MAX_BYTES` (nothing is signed) |
 | 422 | `invalid_art_key` | a saved art key that isn't under `{card-art\|origin-art}/{user_id}/`, wasn't uploaded, or whose object is too large or of the wrong type (checked with `HEAD`, only when the key changes) |
 | 413 | `payload_too_large` | a client-log batch over 64 KiB (`Content-Length`) |
+| 404 | `room_not_found` | an unknown, expired or closed room, or (for `GET`) one the user isn't a member of |
+| 409 | `room_full` | joining a room that has two players, or whose game has started |
+| 422 | `invalid_ruleset` | creating a room with a stored ruleset that no longer validates (a module changed since it was saved); the body has `errors` |
 | 500 | `internal_error` | an unhandled exception; the body also has `request_id` |
 
 Malformed bodies and out-of-bounds values (for example `mana_cost` 11) still get FastAPI's default 422 body.
+
+**Rooms (M6):**
+- **`RoomState`** is what one player sees of a room; it is also the socket's `room_state` payload, so the frontend has one type:
+  `{code, status, ruleset: {id, name, definition}, players: [{user_id, username, is_host, connected, has_deck, ready, seat, away_since}], my_deck: {id, name, origin_id, card_count} | null}`.
+  The opponent's deck shows only as `has_deck` until the game starts. `seat` is null until then; `away_since` (Unix ms) is set while a player's socket is gone during a game.
+- **Create** reads the ruleset like `GET /api/rulesets/{id}` (the user's own or the default) and copies it into the room after `validate_definition`; later edits to the ruleset never reach the room.
+- **Join:** a member (the host too) gets the same answer again. The host's open socket gets the new `room_state`.
+- **`RoomDeckOut`** is `{id, name, origin_id, card_count, problems: [DeckProblem]}`. A `DeckProblem` is `{kind: "size", count, size}`, `{kind: "copies", max, cards: [{id, name}]}` or `{kind: "neutral", cards: [{id, name}]}`: the same checks, on the same cases, as F2's `deckProblems` (`tests/fixtures/deck_rule_cases.json`).
 
 ## 9. Rooms and the WebSocket protocol
 
@@ -663,39 +696,71 @@ Malformed bodies and out-of-bounds values (for example `mana_cost` 11) still get
 create (host) ──► lobby ──(guest joins by code)──► lobby (2 players)
      ──(both select deck + ready)──► playing ──(win / surrender / forfeit)──► finished
 ```
-- Redis keys (24 h TTL):
-  - `room:{code}` holds the host, guest, ruleset snapshot, chosen deck snapshots, ready flags and status
-  - `game:{code}` holds the serialized `GameState`
-- The ruleset is copied into the room when the room is created. The decks are copied when players select them. **Edits made after that don't affect the room.**
-- A deck is offered for selection only if it meets the ruleset's `deck` rules (size, copies, origin or neutral).
+Built in M6 (2026-11-15). The record of the build is in [current-feature.md](current-feature.md) and sessions/session_2026-11-15_m6-rooms.md.
+
+- **Status:** `lobby` → `playing` → `finished`. A lobby whose host leaves is deleted.
+- **The code:** 6 characters from `core/codes.py` (about 30 bits); lower case works.
+- **One Redis key per room, `room:{code}`:** a hash `{rev, data}`. `data` is the whole room as JSON: the ruleset copy `{id, name, definition}`, host and guest (user id, username, the deck copy `{id, name, snapshot}`, `ready`, `seat`, `away_since`), `status`, and from the start of the game its `game_id`, the `GameState`, the turn `deadline`, `started_at` and `ended_at` (Unix ms).
+  - **TTL:** 24 h (`ROOM_TTL_H`), renewed on every write; 10 minutes (`FINISHED_ROOM_TTL_MIN`) once the game is over.
+  - **Every write is a compare-and-set on `rev`,** in one Lua script that reads only `rev`. During a deploy the old and the new instance can both hold a room for a few seconds; this stops one from overwriting the other. A write that loses reloads the room: the action gets `error` with `stale_state`, and both players get the fresh state. A key that is gone closes the room's sockets (`room_closed`, then 1000).
+  - About one command per change: a full game is a few hundred. A write is small: 13–20 KB with the engine's test cards; real names and art URLs make it bigger, up to an estimated 60 KB.
+- **In the process** (one worker, §2): each live room has an `asyncio.Lock`, a cached copy (reads come from it; it changes only after a write succeeds), its sockets, and its tasks. The first use after a restart loads the room from Redis. Nothing awaits the database while holding a room's lock. A room nothing uses (no socket, no task) leaves memory.
+- **Copies:** the ruleset is copied (and checked again with `validate_definition`) when the room is created, a deck when it is selected (`deck_snapshot`, with art URLs). **Edits made after that don't affect the room.**
+- **A deck can be selected** only if it meets the ruleset's `deck` rules (`deck_problems`: size, copies, neutral). `GET /api/rooms/{code}/decks` lists the user's decks with their problems (§8).
 
 ### 9.2 WebSocket
-Connect with `WS /ws/rooms/{code}?token=<access token>`. Every message has the form `{ "type": ..., "seq": n, "payload": {...} }`.
+**Connect** with `WS /ws/rooms/{code}`; the token never goes in the URL.
+- **Auth:** the first message must be `auth {token}` (the access token) within `WS_AUTH_TIMEOUT_S` (10 s). The server checks it as REST does (the user must still exist), then that the user is a member. The socket stays logged in until it closes, even after the token expires; a reconnect needs a fresh token.
+- **On success** the socket gets `room_state`, and `game_state` during a game.
+- **One socket per player and room:** a newer socket from the same user replaces the older one, which closes with 4409.
+- **Messages:** a client message is `{type, seq, payload}`, numbered by the client. A server message is `{type, payload}`; `events` and `error` name the `seq` they answer.
 
-The token in the URL never reaches the logs: the access line leaves out query strings, and a filter strips them from uvicorn's handshake lines (§10.2). Moving the token out of the URL (into the first message, or a one-time ticket) is still open for M6.
+| Close code | When |
+|---|---|
+| 4401 | no valid `auth` first, within 10 s; or the token is invalid or expired (the client refreshes and reconnects) |
+| 4403 | the user isn't a member of the room |
+| 4404 | no such room: unknown, expired or closed |
+| 4409 | the same user opened a newer socket |
+| 1000 | the room closed (after `room_closed`), or the guest left it |
+| 1013 | the client fell too far behind reading (its send queue overflowed): reconnect and resync |
+| 1011 | a server error (the request middleware's answer) |
 
 | Direction | Type | Payload |
 |---|---|---|
-| C → S | `select_deck` | `deck_id` |
-| C → S | `ready` | — |
-| C → S | `action` | an Action (§7.4) |
-| C → S | `surrender` | — |
-| C → S | `ping` / `resync` | — |
-| S → C | `room_state` | players, selected decks, ready flags, status |
-| S → C | `game_state` | `view`, `version`, **`legal_actions`**, `phase`, `deadline` |
-| S → C | `events` | the list of events from the last action (filtered per player) |
-| S → C | `error` | `seq`, `reason` |
-| S → C | `game_over` | `winner` (null for a draw), `reason`, `game_id` |
+| C → S | `auth` | `token`; first, once |
+| C → S | `select_deck` | `deck_id`; lobby |
+| C → S | `ready` | `ready` (true or false); lobby |
+| C → S | `leave` | —; lobby (in a game, a player leaves with `surrender`) |
+| C → S | `action` | a player action (§7.4): `play_card`, `move`, `attack`, `end_phase` or `surrender`; game |
+| C → S | `ping` | — ; answered with `pong`, with no Redis command. The client should ping about every 30 s, so idle proxies keep the socket |
+| C → S | `resync` | — ; answered with the full `room_state` and `game_state` |
+| S → C | `room_state` | `RoomState` (§8) |
+| S → C | `game_state` | `view` (`view_for`), **`legal_actions`**, `deadline` (Unix ms; null outside interactive phases), `server_time` (Unix ms, so the client can correct its clock before counting down) |
+| S → C | `events` | `seq` (the receiver's own message that caused them; null for the opponent's and the timer's) and `events` (`events_for`) |
+| S → C | `error` | `seq`, `reason`, `message`; `problems` for `deck_not_playable`. An error never closes the socket. |
+| S → C | `game_over` | `winner` (a seat, or null for a draw) and `reason`. M7 adds `game_id` with the saved game. |
+| S → C | `room_closed` | — |
+| S → C | `pong` | — |
+
+- **`game_state`** has no separate `version` or `phase`: both are in `view`.
+- **Error reasons:** the engine's (§7.7); `bad_message` (bad JSON, a binary frame, an unknown type or a bad payload; a second `auth`; `abandon`); `not_in_lobby`, `not_in_game`; `deck_not_found`, `deck_not_playable`, `no_deck`; `stale_state`.
+- **The message models are OpenAPI components** (with no route), in serialization mode with every field required, so `npm run gen:api` gives F4 and F5 their types.
 
 ### 9.3 Processing
-- Each room has its own `asyncio.Lock`. For each action the server:
-  1. loads the state
-  2. calls `engine.apply_action`
-  3. saves the state to Redis
-  4. sends `events` and then `game_state` to each player, each with their own view
-- **Turn timer:** every interactive phase has a `time_limit_s` from the ruleset (default 90 s, editable by the rules author). An asyncio task runs `end_phase` automatically at the deadline. In `actor: both` phases, players who aren't ready by then are marked ready. The deadline is included in `game_state`.
-- **Reconnect:** a client that reconnects (or sends `resync`) gets the full current `room_state` and `game_state`. If a player stays disconnected for more than 60 s during a game, they forfeit.
-- **Game over:** the match is written to Postgres `games`, the clients get `game_over`, and the Redis keys expire after 10 minutes.
+- **The lobby:**
+  - `select_deck`: the deck must be the user's own (else `deck_not_found`) and have no problems (else `deck_not_playable` with them). Its snapshot is copied then; it clears the player's ready flag.
+  - `ready`: needs a selected deck (else `no_deck`); `false` takes it back.
+  - `leave`: the guest frees their seat (deck and ready go too; anyone with the code can join again) and their socket closes with 1000. The host deletes the room: every socket gets `room_closed`, then 1000.
+  - **A lobby disconnect** clears the player's ready flag, so a game only starts with both players there.
+- **The game starts** as soon as both players have a deck and are ready: a random seat for each (seat 0 goes first) and a random 63-bit seed, from the OS's random source; a new `game_id` (log lines now, M7's saved game); `start_game`; both players get `room_state`, `events` and `game_state`.
+- **An action,** under the room's lock: parse it as a `PlayerAction`, `apply_action`, write the room, then each connected player gets their own `events`, then `game_state`. An `IllegalAction` sends `error` to the sender alone, and the state stays as it was.
+- **The end:** `status` becomes `finished`; both players get `events`, `game_state`, `game_over` and `room_state`; the timers stop; the key expires 10 minutes later, when the room also closes its remaining sockets (`room_closed`). Nothing is written to Postgres yet (M7).
+- **Turn timer:** when an interactive phase starts (a new turn, or the pipeline reaching it), `deadline` = now + its `time_limit_s`, stored in the room; actions inside the phase don't move it. At the deadline, one task per room applies `end_phase` for each seat that can still end the phase (the active seat; in `actor: both`, each seat that isn't ready). They go in the log as those seats' own actions, so a replay ends the phase the same way.
+- **Players away:** when a player's socket closes during a game, they get `away_since` (stored, so the opponent sees it). Back within `DISCONNECT_FORFEIT_S` (60 s): it is cleared. Otherwise the server applies `abandon` for them, and the opponent wins (`abandoned`). If both are away, the first to reach 60 s loses.
+- **Restarts:** after every use of a room, `game_service.settle` keeps its away flags and tasks in line with the stored room: the turn timer for the stored deadline (a deadline already past fires at once), an away task per stored `away_since`, and the finished room's closing. So a restart needs no special code: the first use loads the room and settles it. Players without a socket then count as away **from the load**, so the server's downtime never counts against them.
+- **Reconnect and `resync`:** the full `room_state` and `game_state`, with no events.
+- **Redis failures:** the client has `socket_timeout` and `socket_connect_timeout` (`REDIS_TIMEOUT_S`, 5 s), so a hung command can't hold a room's lock. A message that fails on Redis closes its socket with 1011, and the client reconnects and resyncs. A timer task retries with a backoff.
+- **Sending:** the services only queue messages (`Notifier`); each socket has a bounded queue and a writer task (`ws/manager.py`), because uvicorn's `send` blocks while a client isn't reading. A socket whose queue overflows closes with 1013.
 
 ## 10. Infrastructure tasks
 
@@ -731,7 +796,8 @@ Agreed 2026-11-10. Railway, Render Starter and a Hetzner VPS were considered and
   Render deploys `master` only after the checks pass (`autoDeployTrigger: checksPass`). Playwright e2e stays local.
 - **Free-tier limits:**
   - the service sleeps after 15 minutes without traffic (WebSocket messages count as traffic), and the first request then waits up to about a minute
-  - in-process room locks and turn timers (§9.3) are lost when it sleeps or redeploys, while room state in Redis survives. M6 has to restore timers from the stored deadline, or the app moves to an always-on plan.
+  - in-process room locks, sockets and turn timers (§9.3) are lost when it sleeps or redeploys, while room state in Redis survives. M6 restores them: the first use of a room after a restart loads it and re-arms its timer from the stored deadline (one already past fires at once) and its away countdowns (§9.3). A room nobody comes back to just waits in Redis until its TTL.
+- **CI** has a `redis:7-alpine` service: the room tests use a real Redis (database 15).
 
 ### 10.2 Logging
 
@@ -757,8 +823,14 @@ Agreed and built 2026-11-11. Reading the logs is in [deployment.md](deployment.m
 - **A caught exception that the request survives** is logged: WARNING when it's unexpected, DEBUG for a normal race.
 - **Never logged:** passwords and hashes, tokens, the `Authorization`, `Cookie` and `Set-Cookie` headers, presigned URLs, secrets, emails, request and response bodies, query strings, and traceback locals. A redaction step replaces secret-looking keys at any depth and scrubs JWTs, `token=` values, `X-Amz-*` signatures and `user:pass@` in URLs, also inside tracebacks. The engine runs with `hide_parameters=True`.
 - **The engine never logs** (`tests/engine/test_no_logging.py`); the services that run it log its outcomes.
-- **Background tasks** start with an empty log context (`asyncio.create_task(..., context=contextvars.Context())`), and log their own exception at ERROR. M6's tasks bind their own `room_code` and `game_id`, and run through a wrapper that does this. The art sweep's loop (§10.3), the first background task, logs its failures itself.
-- **WebSocket events (M6):** a socket lasts a whole game, so it logs per message: `ws.connected`, `ws.closed` (duration, close code), `game.started`, `game.ended`, `game.action_rejected` (INFO, with the reason), `game.action_applied` (DEBUG), `timer.expired` and `ws.resync`, each with `room_code` and `game_id`.
+- **Background tasks** start with an empty log context (`asyncio.create_task(..., context=contextvars.Context())`), and log their own exception at ERROR. M6's tasks (the turn timer, the away countdowns, a finished room's closing) run through `core/tasks.spawn`, which binds their `room_code` and `game_id` and logs `task.failed`. The art sweep's loop (§10.3), the first background task, logs its failures itself.
+- **Rooms and the game socket (M6):** a socket lasts a whole game, so it has no access line; its lines carry `room_code`, `user_id` (once logged in) and `game_id` (once the game starts).
+  - REST: `room.created` (`room_code`, `ruleset_id`; the access line can't have the code) and `room.joined`.
+  - Lobby: `room.left` (`host`), `room.deck_selected` (DEBUG), `room.code_retry` (DEBUG).
+  - Sockets: `ws.connected`, `ws.closed` (`duration_ms`, `code`), `ws.auth_failed` (INFO, `code`, and `reason` for 4401: `timeout`, `bad_message` or the token's error code), `ws.replaced` and `ws.resync` (DEBUG), `ws.send_overflow` (WARNING), `ws.send_failed` (DEBUG).
+  - The game: `game.started` (`game_id`, the users by seat), `game.ended` (`winner`, `end_reason`, `turn_number`, `actions`), `game.action_rejected` (INFO, `reason`, `type`), `game.action_applied` (DEBUG, `type`, `version`, `duration_ms`), `timer.expired` (the phase, the seats), `game.player_away` (`after_restart`) and `game.player_back` (their `user_id` is the player concerned).
+  - Redis: `room.store_conflict` (WARNING) when a compare-and-set loses; `room.settle_failed` and `room.task_retry` (WARNING) when Redis fails under a room.
+  - Never logged: the token, the seed, and the cards in hands or decks.
 - **Browser logs:** `POST /api/client-logs` (§8) writes each entry on `app.client` as `web.<event>`, with `source="web"`, the page, the browser's time, its `context` and `breadcrumbs` nested, and the user from a valid token (decoded only, no database query). The limit is kept in process (one worker): 60 entries a minute per user or IP, and 600 overall.
 
 ### 10.3 Art cleanup
@@ -799,7 +871,7 @@ Art used to be kept forever. Orphans come from deleted cards and origins, art th
 | M6 | Rooms, WebSocket, Redis persistence, timers, reconnect | two WS clients can play a full game to a win |
 | M7 | Match history, replay data, polish | `GET /api/games/{id}` can be replayed exactly |
 
-M0–M5 are done (§1).
+M0–M6 are done (§1).
 
 The frontend milestones (F0–F6) in [frontend_plan.md](frontend_plan.md) are designed to start once the matching backend milestone is done.
 
@@ -815,7 +887,12 @@ Some cross-cutting features were built between milestones, outside this table: d
   - changed actions are rejected exactly when they aren't legal, and leave the state unchanged
   - `apply_action` never changes its input, and the state survives a JSON round trip
 - **API tests** with httpx against a throwaway Postgres (a docker service or testcontainers).
-- **WS integration test:** two simulated clients create and join a room, select decks and play to `game_over`.
+- **Redis (M6):** the room tests use the real docker-compose Redis (CI's `redis:7-alpine` service), on database 15, which the `redis` fixture empties before each test; it refuses any other database. The URL and password come from the real settings, as the test database's do. So local `pytest` needs `docker compose up -d`.
+- **WebSocket tests (M6):** `httpx-ws`, whose ASGI transport runs the app in the test's own event loop, so sockets share the test's rolled-back DB session (behind a lock, since sockets run concurrently with requests). The transport's task group must be left in the task that entered it, so one helper task holds the client for the fixture's whole life.
+  - **No sleeps:** the timers and the auth timeout wait on an injectable clock (`core/clock.py`); tests move a `FakeClock` forward. Seats and seeds come from a seeded `random.Random`, so games repeat.
+  - **A restart** is a second room runtime on the same Redis database (`tests/room_helpers.restarted`).
+  - **A full game:** two sockets play to `game_over` with moves from the engine test bot (`greedy_action` on the room's state), each checked against that client's `legal_actions`.
+  - Files: `test_rooms.py` (REST), `test_room_lobby.py` (auth, close codes, the lobby), `test_room_game.py`, `test_room_timers.py`, `test_room_away.py`, `test_room_store.py`, `test_live_rooms.py`, `test_deck_rules.py` (the shared deck-rule cases), `test_tasks.py`, and `tests/engine/test_abandon.py`.
 
 ## 13. Suggestions and future work
 

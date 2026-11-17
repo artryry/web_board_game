@@ -13,9 +13,10 @@ from sqlalchemy import delete, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
+from app.core.db import SessionFactory
 from app.models import User
 from app.services import art_cleanup_service
-from app.services.art_cleanup_service import LAST_RUN_KEY, SessionFactory, SweepResult
+from app.services.art_cleanup_service import LAST_RUN_KEY, SweepResult
 from tests.helpers import (
     UPLOADED_AT,
     AuthedUser,

@@ -1,3 +1,6 @@
+from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager
+
 from sqlalchemy import MetaData
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -33,3 +36,8 @@ def create_engine(settings: Settings) -> AsyncEngine:
 
 def create_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
     return async_sessionmaker(engine, expire_on_commit=False)
+
+
+# Opens a short-lived session: for code that runs outside a request (background tasks, a game
+# socket that stays open for a whole game). `async_sessionmaker` is one; tests pass their own.
+SessionFactory = Callable[[], AbstractAsyncContextManager[AsyncSession]]

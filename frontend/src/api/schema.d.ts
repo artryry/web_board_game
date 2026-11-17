@@ -520,6 +520,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/rooms": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create Room */
+        post: operations["create_room_api_rooms_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/rooms/join": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Join Room */
+        post: operations["join_room_api_rooms_join_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/rooms/{code}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Room */
+        get: operations["get_room_api_rooms__code__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/rooms/{code}/decks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Room Decks */
+        get: operations["room_decks_api_rooms__code__decks_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -801,6 +869,21 @@ export interface components {
              * @default []
              */
             breadcrumbs: components["schemas"]["ClientBreadcrumb"][];
+        };
+        /**
+         * CopiesProblem
+         * @description Cards with more than `max` copies.
+         */
+        CopiesProblem: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "copies";
+            /** Max */
+            max: number;
+            /** Cards */
+            cards: components["schemas"]["ProblemCard"][];
         };
         /**
          * CostSpec
@@ -1085,6 +1168,19 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /**
+         * NeutralProblem
+         * @description Neutral cards in a deck of another origin, when the rules don't allow them.
+         */
+        NeutralProblem: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "neutral";
+            /** Cards */
+            cards: components["schemas"]["ProblemCard"][];
+        };
         /** OriginColorOut */
         OriginColorOut: {
             /**
@@ -1198,6 +1294,13 @@ export interface components {
             /** Total */
             total: number;
         };
+        /** Page[RoomDeckOut] */
+        Page_RoomDeckOut_: {
+            /** Items */
+            items: components["schemas"]["RoomDeckOut"][];
+            /** Total */
+            total: number;
+        };
         /** Page[RulesetOut] */
         Page_RulesetOut_: {
             /** Items */
@@ -1220,6 +1323,16 @@ export interface components {
             /** Interactive */
             interactive: boolean;
         };
+        /** ProblemCard */
+        ProblemCard: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+        };
         /** RegisterRequest */
         RegisterRequest: {
             /** Username */
@@ -1231,6 +1344,111 @@ export interface components {
             email: string;
             /** Password */
             password: string;
+        };
+        /** RoomCreate */
+        RoomCreate: {
+            /**
+             * Ruleset Id
+             * Format: uuid
+             */
+            ruleset_id: string;
+        };
+        /**
+         * RoomDeckOut
+         * @description One of the user's decks, with what keeps it from being picked in this room.
+         */
+        RoomDeckOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Origin Id
+             * Format: uuid
+             */
+            origin_id: string;
+            /** Card Count */
+            card_count: number;
+            /** Problems */
+            problems: (components["schemas"]["SizeProblem"] | components["schemas"]["CopiesProblem"] | components["schemas"]["NeutralProblem"])[];
+        };
+        /** RoomDeckSummary */
+        RoomDeckSummary: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /**
+             * Origin Id
+             * Format: uuid
+             */
+            origin_id: string;
+            /** Card Count */
+            card_count: number;
+        };
+        /** RoomJoin */
+        RoomJoin: {
+            /** Code */
+            code: string;
+        };
+        /** RoomPlayerOut */
+        RoomPlayerOut: {
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+            /** Username */
+            username: string;
+            /** Is Host */
+            is_host: boolean;
+            /** Connected */
+            connected: boolean;
+            /** Has Deck */
+            has_deck: boolean;
+            /** Ready */
+            ready: boolean;
+            /** Seat */
+            seat: (0 | 1) | null;
+            /** Away Since */
+            away_since: number | null;
+        };
+        /**
+         * RoomRulesetOut
+         * @description The ruleset as it was copied when the room was created.
+         */
+        RoomRulesetOut: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            definition: components["schemas"]["RulesetDefinition"];
+        };
+        /**
+         * RoomState
+         * @description What one player sees of a room: the REST answer and the socket's `room_state` payload.
+         */
+        RoomState: {
+            /** Code */
+            code: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "lobby" | "playing" | "finished";
+            ruleset: components["schemas"]["RoomRulesetOut"];
+            /** Players */
+            players: components["schemas"]["RoomPlayerOut"][];
+            my_deck: components["schemas"]["RoomDeckSummary"] | null;
         };
         /**
          * RuleError
@@ -1362,6 +1580,21 @@ export interface components {
             /** Share Code */
             share_code: string;
         };
+        /**
+         * SizeProblem
+         * @description The deck needs exactly `size` cards and has `count`.
+         */
+        SizeProblem: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "size";
+            /** Count */
+            count: number;
+            /** Size */
+            size: number;
+        };
         /** SpellOut */
         SpellOut: {
             /** Key */
@@ -1441,6 +1674,855 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /** ActionMessage */
+        ActionMessage: {
+            /**
+             * Type
+             * @constant
+             */
+            type: "action";
+            /** Seq */
+            seq: number;
+            /** Payload */
+            payload: components["schemas"]["PlayCard"] | components["schemas"]["Move"] | components["schemas"]["Attack"] | components["schemas"]["EndPhase"] | components["schemas"]["Surrender"];
+        };
+        /** Attack */
+        Attack: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "attack";
+            /** Creature Uid */
+            creature_uid: string;
+            /** Target */
+            target: components["schemas"]["CreatureRef"] | components["schemas"]["SectionRef"];
+        };
+        /** AttackMade */
+        AttackMade: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "attack";
+            /** Uid */
+            uid: string;
+            /** Target */
+            target: components["schemas"]["CreatureRef"] | components["schemas"]["SectionRef"];
+        };
+        /**
+         * AuthMessage
+         * @description The first message, within `WS_AUTH_TIMEOUT_S` of connecting.
+         */
+        AuthMessage: {
+            /**
+             * Type
+             * @constant
+             */
+            type: "auth";
+            /** Seq */
+            seq: number;
+            payload: components["schemas"]["AuthPayload"];
+        };
+        /** AuthPayload */
+        AuthPayload: {
+            /** Token */
+            token: string;
+        };
+        /**
+         * CardDiscarded
+         * @description Hidden, like `card_drawn`.
+         */
+        CardDiscarded: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "card_discarded";
+            /**
+             * Seat
+             * @enum {integer}
+             */
+            seat: 0 | 1;
+            card: components["schemas"]["CardInstance"] | null;
+        };
+        /**
+         * CardDrawn
+         * @description Hidden: only `seat` sees the card; `events_for` removes it for the other seat.
+         */
+        CardDrawn: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "card_drawn";
+            /**
+             * Seat
+             * @enum {integer}
+             */
+            seat: 0 | 1;
+            card: components["schemas"]["CardInstance"] | null;
+        };
+        /**
+         * CardInstance
+         * @description A card in a deck or a hand. Its uid (`p0-1`, `p0-2`, …) is given after the shuffle, so it
+         *     says nothing about which card it is.
+         */
+        CardInstance: {
+            /** Uid */
+            uid: string;
+            card: components["schemas"]["CardSnapshot"];
+        };
+        /** CardPlayed */
+        CardPlayed: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "card_played";
+            /**
+             * Seat
+             * @enum {integer}
+             */
+            seat: 0 | 1;
+            card: components["schemas"]["CardInstance"];
+            /** Cost */
+            cost: number;
+            /** Target */
+            target: (components["schemas"]["SlotRef"] | components["schemas"]["SectionRef"] | components["schemas"]["CreatureRef"] | components["schemas"]["CreatureToSlotRef"]) | null;
+        };
+        /** CardSnapshot */
+        CardSnapshot: {
+            /** Card Id */
+            card_id: string;
+            /** Name */
+            name: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "creature" | "spell";
+            /** Origin Id */
+            origin_id: string;
+            /** Mana Cost */
+            mana_cost: number;
+            /** Hp */
+            hp: number | null;
+            /** Dmg */
+            dmg: number | null;
+            /** Abilities */
+            abilities: components["schemas"]["ModuleRef"][];
+            /** Art Url */
+            art_url: string | null;
+        };
+        /** CreatureDamaged */
+        CreatureDamaged: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "damage";
+            /** Uid */
+            uid: string;
+            /** Amount */
+            amount: number;
+            /** Hp */
+            hp: number;
+        };
+        /** CreatureDied */
+        CreatureDied: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "creature_died";
+            /** Uid */
+            uid: string;
+            /**
+             * Seat
+             * @enum {integer}
+             */
+            seat: 0 | 1;
+            /** Lane */
+            lane: number;
+            /** Slot */
+            slot: number;
+        };
+        /** CreatureHealed */
+        CreatureHealed: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "heal";
+            /** Uid */
+            uid: string;
+            /** Amount */
+            amount: number;
+            /** Hp */
+            hp: number;
+        };
+        /**
+         * CreatureInstance
+         * @description A creature on the board. A creature played from the hand keeps its card's uid; tokens get
+         *     `t1`, `t2`, …
+         */
+        CreatureInstance: {
+            /** Uid */
+            uid: string;
+            card: components["schemas"]["CardSnapshot"];
+            /**
+             * Owner
+             * @enum {integer}
+             */
+            owner: 0 | 1;
+            /** Hp */
+            hp: number;
+            /** Max Hp */
+            max_hp: number;
+            /** Dmg */
+            dmg: number;
+            /**
+             * @default {
+             *       "hp": 0,
+             *       "dmg": 0
+             *     }
+             */
+            field_bonus: components["schemas"]["StatDelta"];
+            /**
+             * Exhausted
+             * @default true
+             */
+            exhausted: boolean;
+            /**
+             * Has Moved
+             * @default false
+             */
+            has_moved: boolean;
+            /** Features */
+            features: components["schemas"]["ModuleRef"][];
+        };
+        /** CreatureMoved */
+        CreatureMoved: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "creature_moved";
+            /** Uid */
+            uid: string;
+            /**
+             * Seat
+             * @enum {integer}
+             */
+            seat: 0 | 1;
+            /** From Lane */
+            from_lane: number;
+            /** From Slot */
+            from_slot: number;
+            /** Lane */
+            lane: number;
+            /** Slot */
+            slot: number;
+        };
+        /** CreatureRef */
+        CreatureRef: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "creature";
+            /** Uid */
+            uid: string;
+        };
+        /** CreatureSummoned */
+        CreatureSummoned: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "creature_summoned";
+            creature: components["schemas"]["CreatureInstance"];
+            /** Lane */
+            lane: number;
+            /** Slot */
+            slot: number;
+        };
+        /**
+         * CreatureToSlotRef
+         * @description A creature and the slot it goes to (`move_enemy`).
+         */
+        CreatureToSlotRef: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "creature_to_slot";
+            /** Uid */
+            uid: string;
+            to: components["schemas"]["SlotRef"];
+        };
+        /**
+         * DeckEmpty
+         * @description A draw from an empty deck: nothing is drawn.
+         */
+        DeckEmpty: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "deck_empty";
+            /**
+             * Seat
+             * @enum {integer}
+             */
+            seat: 0 | 1;
+        };
+        /**
+         * EndPhase
+         * @description Ends an interactive phase. In an `actor: both` phase it means the player is ready.
+         */
+        EndPhase: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "end_phase";
+        };
+        /**
+         * ErrorMessage
+         * @description A refused message: the room is as it was. It never closes the socket.
+         */
+        ErrorMessage: {
+            /**
+             * Type
+             * @default error
+             * @constant
+             */
+            type: "error";
+            payload: components["schemas"]["ErrorPayload"];
+        };
+        /** ErrorPayload */
+        ErrorPayload: {
+            /** Seq */
+            seq: number | null;
+            /** Reason */
+            reason: ("game_over" | "not_your_turn" | "not_allowed_now" | "unknown_card" | "not_enough_mana" | "slot_occupied" | "invalid_target" | "creature_exhausted" | "already_moved" | "engine_limit") | ("bad_message" | "not_in_lobby" | "not_in_game" | "deck_not_found" | "deck_not_playable" | "no_deck" | "stale_state");
+            /** Message */
+            message: string;
+            /** Problems */
+            problems: (components["schemas"]["SizeProblem"] | components["schemas"]["CopiesProblem"] | components["schemas"]["NeutralProblem"])[] | null;
+        };
+        /** EventsMessage */
+        EventsMessage: {
+            /**
+             * Type
+             * @default events
+             * @constant
+             */
+            type: "events";
+            payload: components["schemas"]["EventsPayload"];
+        };
+        /** EventsPayload */
+        EventsPayload: {
+            /** Seq */
+            seq: number | null;
+            /** Events */
+            events: (components["schemas"]["GameStarted"] | components["schemas"]["TurnStarted"] | components["schemas"]["PhaseChanged"] | components["schemas"]["CardDrawn"] | components["schemas"]["DeckEmpty"] | components["schemas"]["CardDiscarded"] | components["schemas"]["ManaChanged"] | components["schemas"]["CardPlayed"] | components["schemas"]["CreatureSummoned"] | components["schemas"]["CreatureMoved"] | components["schemas"]["AttackMade"] | components["schemas"]["CreatureDamaged"] | components["schemas"]["CreatureHealed"] | components["schemas"]["StatsChanged"] | components["schemas"]["CreatureDied"] | components["schemas"]["SectionHpChanged"] | components["schemas"]["SectionConquered"] | components["schemas"]["PlayerReady"] | components["schemas"]["GameOver"])[];
+        };
+        /** GameOver */
+        GameOver: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "game_over";
+            /** Winner */
+            winner: (0 | 1) | null;
+            /**
+             * End Reason
+             * @enum {string}
+             */
+            end_reason: "conquered" | "surrender" | "out_of_cards" | "abandoned";
+        };
+        /** GameOverMessage */
+        GameOverMessage: {
+            /**
+             * Type
+             * @default game_over
+             * @constant
+             */
+            type: "game_over";
+            payload: components["schemas"]["GameOverPayload"];
+        };
+        /** GameOverPayload */
+        GameOverPayload: {
+            /** Winner */
+            winner: (0 | 1) | null;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "conquered" | "surrender" | "out_of_cards" | "abandoned";
+        };
+        /** GameStarted */
+        GameStarted: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "game_started";
+        };
+        /** GameStateMessage */
+        GameStateMessage: {
+            /**
+             * Type
+             * @default game_state
+             * @constant
+             */
+            type: "game_state";
+            payload: components["schemas"]["GameStatePayload"];
+        };
+        /** GameStatePayload */
+        GameStatePayload: {
+            view: components["schemas"]["PlayerView"];
+            /** Legal Actions */
+            legal_actions: (components["schemas"]["PlayCard"] | components["schemas"]["Move"] | components["schemas"]["Attack"] | components["schemas"]["EndPhase"] | components["schemas"]["Surrender"])[];
+            /** Deadline */
+            deadline: number | null;
+            /** Server Time */
+            server_time: number;
+        };
+        /** HandCard */
+        HandCard: {
+            /** Uid */
+            uid: string;
+            card: components["schemas"]["CardSnapshot"];
+            /** Cost */
+            cost: number;
+        };
+        /** LeaveMessage */
+        LeaveMessage: {
+            /**
+             * Type
+             * @constant
+             */
+            type: "leave";
+            /** Seq */
+            seq: number;
+            payload?: components["schemas"]["NoPayload"];
+        };
+        /** ManaChanged */
+        ManaChanged: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "mana_changed";
+            /**
+             * Seat
+             * @enum {integer}
+             */
+            seat: 0 | 1;
+            /** Mana */
+            mana: number;
+            /** Max Mana */
+            max_mana: number;
+        };
+        /** Move */
+        Move: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "move";
+            /** Creature Uid */
+            creature_uid: string;
+            to: components["schemas"]["SlotRef"];
+        };
+        /**
+         * NoPayload
+         * @description The payload of a message that carries nothing: `{}` (or leave `payload` out).
+         */
+        NoPayload: Record<string, never>;
+        /** OriginSnapshot */
+        OriginSnapshot: {
+            /** Origin Id */
+            origin_id: string;
+            /** Name */
+            name: string;
+            /**
+             * Color
+             * @enum {string}
+             */
+            color: "orange" | "sky_blue" | "bluish_green" | "yellow" | "blue" | "vermillion" | "reddish_purple" | "grey" | "black";
+            /**
+             * Icon
+             * @enum {string}
+             */
+            icon: "circle" | "leaf" | "flame" | "waves" | "mountain" | "sun" | "moon" | "snowflake" | "skull" | "zap" | "shield" | "crown" | "star" | "droplet" | "wind" | "sparkles";
+            /** Field Effects */
+            field_effects: components["schemas"]["ModuleRef"][];
+            /** Background Art Url */
+            background_art_url: string | null;
+        };
+        /** PhaseChanged */
+        PhaseChanged: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "phase_changed";
+            /**
+             * Pipeline
+             * @enum {string}
+             */
+            pipeline: "setup" | "turn";
+            /** Index */
+            index: number;
+            /** Key */
+            key: string;
+        };
+        /** PhaseView */
+        PhaseView: {
+            /**
+             * Pipeline
+             * @enum {string}
+             */
+            pipeline: "setup" | "turn";
+            /** Index */
+            index: number;
+            /** Key */
+            key: string;
+            /** Interactive */
+            interactive: boolean;
+            /** Actor */
+            actor: ("active" | "both") | null;
+            /** Allow */
+            allow: ("play" | "move" | "attack")[];
+            /** Time Limit S */
+            time_limit_s: number | null;
+        };
+        /**
+         * PingMessage
+         * @description Answered with `pong`, at no cost: send one about every 30 s, so idle proxies keep the
+         *     socket open.
+         */
+        PingMessage: {
+            /**
+             * Type
+             * @constant
+             */
+            type: "ping";
+            /** Seq */
+            seq: number;
+            payload?: components["schemas"]["NoPayload"];
+        };
+        /** PlayCard */
+        PlayCard: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "play_card";
+            /** Card Uid */
+            card_uid: string;
+            /** Target */
+            target: (components["schemas"]["SlotRef"] | components["schemas"]["SectionRef"] | components["schemas"]["CreatureRef"] | components["schemas"]["CreatureToSlotRef"]) | null;
+        };
+        /** PlayerReady */
+        PlayerReady: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "player_ready";
+            /**
+             * Seat
+             * @enum {integer}
+             */
+            seat: 0 | 1;
+        };
+        /** PlayerSummary */
+        PlayerSummary: {
+            /**
+             * Seat
+             * @enum {integer}
+             */
+            seat: 0 | 1;
+            origin: components["schemas"]["OriginSnapshot"];
+            /** Mana */
+            mana: number;
+            /** Max Mana */
+            max_mana: number;
+            /** Deck Count */
+            deck_count: number;
+            /** Hand Count */
+            hand_count: number;
+            /** Hand */
+            hand: components["schemas"]["HandCard"][] | null;
+        };
+        /** PlayerView */
+        PlayerView: {
+            /**
+             * Seat
+             * @enum {integer}
+             */
+            seat: 0 | 1;
+            /** Version */
+            version: number;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "playing" | "finished";
+            /** Winner */
+            winner: (0 | 1) | null;
+            /** End Reason */
+            end_reason: ("conquered" | "surrender" | "out_of_cards" | "abandoned") | null;
+            /** Turn Number */
+            turn_number: number;
+            /**
+             * Active Seat
+             * @enum {integer}
+             */
+            active_seat: 0 | 1;
+            phase: components["schemas"]["PhaseView"];
+            /** Ready */
+            ready: boolean[];
+            /** Players */
+            players: components["schemas"]["PlayerSummary"][];
+            /** Sections */
+            sections: components["schemas"]["Section"][][];
+        };
+        /** PongMessage */
+        PongMessage: {
+            /**
+             * Type
+             * @default pong
+             * @constant
+             */
+            type: "pong";
+            /** Payload */
+            payload: null;
+        };
+        /** ReadyMessage */
+        ReadyMessage: {
+            /**
+             * Type
+             * @constant
+             */
+            type: "ready";
+            /** Seq */
+            seq: number;
+            payload: components["schemas"]["ReadyPayload"];
+        };
+        /** ReadyPayload */
+        ReadyPayload: {
+            /** Ready */
+            ready: boolean;
+        };
+        /**
+         * ResyncMessage
+         * @description Asks for the full `room_state` and `game_state` again.
+         */
+        ResyncMessage: {
+            /**
+             * Type
+             * @constant
+             */
+            type: "resync";
+            /** Seq */
+            seq: number;
+            payload?: components["schemas"]["NoPayload"];
+        };
+        /**
+         * RoomClosedMessage
+         * @description The room is gone; the socket closes next, with 1000.
+         */
+        RoomClosedMessage: {
+            /**
+             * Type
+             * @default room_closed
+             * @constant
+             */
+            type: "room_closed";
+            /** Payload */
+            payload: null;
+        };
+        /** RoomStateMessage */
+        RoomStateMessage: {
+            /**
+             * Type
+             * @default room_state
+             * @constant
+             */
+            type: "room_state";
+            payload: components["schemas"]["RoomState"];
+        };
+        /** Section */
+        Section: {
+            /**
+             * Owner
+             * @enum {integer}
+             */
+            owner: 0 | 1;
+            /** Lane */
+            lane: number;
+            /** Hp */
+            hp: number;
+            /** Max Hp */
+            max_hp: number;
+            /** Slots */
+            slots: (components["schemas"]["CreatureInstance"] | null)[];
+            /**
+             * Conquered
+             * @default false
+             */
+            conquered: boolean;
+        };
+        /** SectionConquered */
+        SectionConquered: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "section_conquered";
+            /**
+             * Seat
+             * @enum {integer}
+             */
+            seat: 0 | 1;
+            /** Lane */
+            lane: number;
+        };
+        /** SectionHpChanged */
+        SectionHpChanged: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "section_hp_changed";
+            /**
+             * Seat
+             * @enum {integer}
+             */
+            seat: 0 | 1;
+            /** Lane */
+            lane: number;
+            /** Delta */
+            delta: number;
+            /** Hp */
+            hp: number;
+            /** Max Hp */
+            max_hp: number;
+        };
+        /** SectionRef */
+        SectionRef: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "section";
+            /**
+             * Seat
+             * @enum {integer}
+             */
+            seat: 0 | 1;
+            /** Lane */
+            lane: number;
+        };
+        /** SelectDeckMessage */
+        SelectDeckMessage: {
+            /**
+             * Type
+             * @constant
+             */
+            type: "select_deck";
+            /** Seq */
+            seq: number;
+            payload: components["schemas"]["SelectDeckPayload"];
+        };
+        /** SelectDeckPayload */
+        SelectDeckPayload: {
+            /**
+             * Deck Id
+             * Format: uuid
+             */
+            deck_id: string;
+        };
+        /** SlotRef */
+        SlotRef: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "slot";
+            /**
+             * Seat
+             * @enum {integer}
+             */
+            seat: 0 | 1;
+            /** Lane */
+            lane: number;
+            /** Slot */
+            slot: number;
+        };
+        /**
+         * StatDelta
+         * @description A change to a creature's HP and DMG, as hooks return it.
+         */
+        StatDelta: {
+            /**
+             * Hp
+             * @default 0
+             */
+            hp: number;
+            /**
+             * Dmg
+             * @default 0
+             */
+            dmg: number;
+        };
+        /** StatsChanged */
+        StatsChanged: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "stats_changed";
+            /** Uid */
+            uid: string;
+            /** Hp */
+            hp: number;
+            /** Max Hp */
+            max_hp: number;
+            /** Dmg */
+            dmg: number;
+        };
+        /** Surrender */
+        Surrender: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "surrender";
+        };
+        /** TurnStarted */
+        TurnStarted: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "turn_started";
+            /**
+             * Seat
+             * @enum {integer}
+             */
+            seat: 0 | 1;
+            /** Turn Number */
+            turn_number: number;
         };
     };
     responses: never;
@@ -2842,6 +3924,137 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UploadTicket"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    create_room_api_rooms_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoomCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoomState"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    join_room_api_rooms_join_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoomJoin"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoomState"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_room_api_rooms__code__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoomState"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    room_decks_api_rooms__code__decks_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Page_RoomDeckOut_"];
                 };
             };
             /** @description Validation Error */

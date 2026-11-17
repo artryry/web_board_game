@@ -35,8 +35,17 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
-    # The tests run against a real Postgres (they create `cardtable_test`) and fake Redis and R2,
-    # but Settings still requires every variable, so the rest get placeholder values.
+      # The room tests use a real Redis (database 15, emptied before each test). No password.
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    # The tests run against a real Postgres (they create `cardtable_test`) and Redis, with a fake
+    # R2; Settings still requires every variable, so the rest get placeholder values.
     env:
       DATABASE_URL: postgresql+asyncpg://cardtable:cardtable@localhost:5432/cardtable
       REDIS_URL: redis://localhost:6379/0

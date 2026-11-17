@@ -97,8 +97,9 @@ def _leading_keys_first(_logger: WrappedLogger, _method: str, event_dict: EventD
 
 
 class StripQueryStrings(logging.Filter):
-    """uvicorn logs WebSocket handshakes with the full URL, and the planned game socket carries
-    the access token in its query string (`?token=`). Paths in uvicorn's lines lose the query."""
+    """uvicorn logs WebSocket handshakes with the full URL. The game socket sends its token in
+    its first message, but a client could still put one in the query string (`?token=`), so
+    paths in uvicorn's lines lose the query."""
 
     def filter(self, record: logging.LogRecord) -> bool:
         if record.name.startswith("uvicorn") and isinstance(record.args, tuple):

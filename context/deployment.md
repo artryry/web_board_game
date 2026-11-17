@@ -53,7 +53,7 @@ Runs on every push and pull request to `master`. A newer push to the same branch
 
 | Job | What it does |
 |---|---|
-| `backend` | Python 3.12, `pip install -r requirements-dev.txt`, then `ruff check`, `ruff format --check`, `mypy app tests`, `pytest`. A `postgres:16-alpine` service container is the test database; Redis and R2 are faked in the tests, but `Settings` still needs every variable, so the workflow sets placeholders. |
+| `backend` | Python 3.12, `pip install -r requirements-dev.txt`, then `ruff check`, `ruff format --check`, `mypy app tests`, `pytest`. A `postgres:16-alpine` service container is the test database, and a `redis:7-alpine` one (no password) serves the room tests, which use database 15 and empty it before each test. R2 is faked in the tests, but `Settings` still needs every variable, so the workflow sets placeholders. |
 | `frontend` | Node from `frontend/.nvmrc`, `npm ci`, then `lint`, `format:check`, `typecheck`, `test`, `build`. |
 | `docker` | `docker build .`, so a broken Dockerfile fails here, not on Render. |
 
@@ -89,7 +89,7 @@ Production values live **only** in the Render dashboard (service → **Environme
 | `RENDER_GIT_COMMIT` | Set by Render (if present); the `app.started` line shows it. |
 | `ART_SWEEP_ENABLED` | `true`, from `render.yaml`: the daily art sweep (see [Art cleanup](#art-cleanup)). `app.started` shows `art_sweep`. |
 
-The rest (`ACCESS_TOKEN_TTL_MIN`, `REFRESH_TOKEN_TTL_DAYS`, `REFRESH_COOKIE_SECURE=true`, upload limits, `ART_SWEEP_INTERVAL_H`, `ART_SWEEP_GRACE_H`, `ART_SWEEP_MAX_DELETES`, …) use the defaults in `core/config.py`. Add one in Render only to override it.
+The rest (`ACCESS_TOKEN_TTL_MIN`, `REFRESH_TOKEN_TTL_DAYS`, `REFRESH_COOKIE_SECURE=true`, upload limits, `ART_SWEEP_INTERVAL_H`, `ART_SWEEP_GRACE_H`, `ART_SWEEP_MAX_DELETES`, and M6's `REDIS_TIMEOUT_S` (5), `ROOM_TTL_H` (24), `FINISHED_ROOM_TTL_MIN` (10), `DISCONNECT_FORFEIT_S` (60), `WS_AUTH_TIMEOUT_S` (10), …) use the defaults in `core/config.py`. Add one in Render only to override it.
 
 ## Health endpoints
 
@@ -162,8 +162,9 @@ Everything can stay running; nothing is billed while idle.
 | Upstash | No commands, no cost. **Archived after at least 14 days without traffic** (warning emails first). | ~500K commands a month. |
 | R2 | Free up to 10 GB and millions of operations a month. The account has a payment method, so a billing alert in Cloudflare is worth setting. The daily art sweep adds one list request per 1000 objects and one request per deleted object. | Billed beyond the free tier (not reachable at this scale). |
 
-- **Upstash archiving:** until rooms exist (M6), only `/api/health` uses Redis, so the database looks idle. The app still works if it is archived; Redis is only connected on use. `/api/health` would then show `redis: false`. Restore it, or create a new database, in the Upstash console, then update `REDIS_URL` in Render. A daily scheduled call to `/api/health` would keep it active.
-- **In-process state:** room locks and turn timers (M6) live in the process and are lost when the free instance sleeps or redeploys; room state in Redis survives.
+- **Upstash usage:** rooms live in Redis (M6), about one command per change: creating, joining, picking a deck, each action and each timed phase end. A full game is a few hundred commands, so the ~500K a month are far away. Pings cost none. Each write holds the whole room (tens of KB at most). A database without games for 14 days can still be archived: the app then fails room requests (and `/api/health` shows `redis: false`) until it is restored in the Upstash console, or a new one's URL is put in `REDIS_URL`.
+- **In-process state:** room locks, sockets and turn timers (M6) live in the process and are lost when the free instance sleeps or redeploys; the rooms themselves are in Redis. The first request or socket for a room after a restart loads it and re-arms its timers from the stored deadline (one already past fires at once). Players without a socket then count as away from that moment, and lose after 60 s unless they reconnect, so a restart costs nobody a game by itself. Clients reconnect on their own.
+- **WebSockets on Render** come through the same origin (`wss://<service>.onrender.com/ws/rooms/{code}`); socket messages count as traffic, so a running game keeps the free instance awake.
 
 ## Troubleshooting
 
@@ -184,6 +185,9 @@ Everything can stay running; nothing is billed while idle.
 | `art.sweep_failed` in the logs | The sweep crashed (the traceback is on the line), most likely R2, Neon or Upstash being unreachable. The next hourly check after the interval retries it. A single `art.delete_failed` is retried by the next sweep. |
 | No `art.swept` for days | Check that `app.started` shows `"art_sweep":true`. If it's `false`, `ART_SWEEP_ENABLED` isn't set: check Environment in Render (the Blueprint sets it from `render.yaml`). The sweep also needs the service to stay awake for 60 s after a start. |
 | Lines in the logs aren't JSON | `LOG_FORMAT` isn't `json` on the service (it comes from `render.yaml`). Lines from before the app starts (Render's own build and deploy messages) are always plain text. |
+| `room.store_conflict` warnings | Two writes to one room raced: expected for a few seconds during a deploy, while the old and the new instance both hold the room. The losing write's player got `stale_state` and the fresh state. Steady conflicts outside deploys mean two instances serve the app (more than one worker): see below. |
+| `room.task_retry` or `room.settle_failed` warnings | Redis (Upstash) didn't answer within `REDIS_TIMEOUT_S`. Timers retry with a backoff; sockets whose messages failed closed with 1011 and their clients reconnect. Check Upstash's status and the `REDIS_URL`. |
+| Players stuck on "Reconnecting…" | Check `ws.auth_failed` lines: `code` 4401 with `reason` `token_expired` means the client didn't refresh before reconnecting; 4404 means the room expired (24 h without a change) or was closed. |
 
 ## Changing the setup later
 

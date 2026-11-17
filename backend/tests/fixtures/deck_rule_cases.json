@@ -1,0 +1,108 @@
+[
+  {
+    "case": "a deck of exactly the size, within the copies, passes",
+    "rules": { "size": 10, "max_copies": 2, "allow_neutral": true },
+    "deck_origin": "forest",
+    "cards": [
+      { "name": "Wolf", "origin": "forest", "mana_cost": 1, "count": 2 },
+      { "name": "Bear", "origin": "forest", "mana_cost": 2, "count": 2 },
+      { "name": "Owl", "origin": "forest", "mana_cost": 3, "count": 2 },
+      { "name": "Scout", "origin": "neutral", "mana_cost": 4, "count": 2 },
+      { "name": "Elk", "origin": "forest", "mana_cost": 5, "count": 2 }
+    ],
+    "problems": []
+  },
+  {
+    "case": "too few cards",
+    "rules": { "size": 10, "max_copies": 2, "allow_neutral": true },
+    "deck_origin": "forest",
+    "cards": [
+      { "name": "Wolf", "origin": "forest", "mana_cost": 1, "count": 2 },
+      { "name": "Bear", "origin": "forest", "mana_cost": 2, "count": 2 }
+    ],
+    "problems": [{ "kind": "size", "count": 4, "size": 10 }]
+  },
+  {
+    "case": "too many cards: the size is exact",
+    "rules": { "size": 10, "max_copies": 4, "allow_neutral": true },
+    "deck_origin": "forest",
+    "cards": [
+      { "name": "Wolf", "origin": "forest", "mana_cost": 1, "count": 4 },
+      { "name": "Bear", "origin": "forest", "mana_cost": 2, "count": 4 },
+      { "name": "Owl", "origin": "forest", "mana_cost": 3, "count": 4 }
+    ],
+    "problems": [{ "kind": "size", "count": 12, "size": 10 }]
+  },
+  {
+    "case": "an empty deck",
+    "rules": { "size": 10, "max_copies": 2, "allow_neutral": true },
+    "deck_origin": "forest",
+    "cards": [],
+    "problems": [{ "kind": "size", "count": 0, "size": 10 }]
+  },
+  {
+    "case": "the cards over the copy limit, in deck order",
+    "rules": { "size": 10, "max_copies": 2, "allow_neutral": true },
+    "deck_origin": "forest",
+    "cards": [
+      { "name": "Wolf", "origin": "forest", "mana_cost": 1, "count": 3 },
+      { "name": "Bear", "origin": "forest", "mana_cost": 2, "count": 2 },
+      { "name": "Elk", "origin": "forest", "mana_cost": 3, "count": 4 },
+      { "name": "Owl", "origin": "forest", "mana_cost": 4, "count": 1 }
+    ],
+    "problems": [{ "kind": "copies", "max": 2, "cards": ["Wolf", "Elk"] }]
+  },
+  {
+    "case": "neutral cards in a deck of another origin when the rules forbid them",
+    "rules": { "size": 10, "max_copies": 2, "allow_neutral": false },
+    "deck_origin": "forest",
+    "cards": [
+      { "name": "Wolf", "origin": "forest", "mana_cost": 1, "count": 2 },
+      { "name": "Scout", "origin": "neutral", "mana_cost": 2, "count": 2 },
+      { "name": "Bear", "origin": "forest", "mana_cost": 3, "count": 2 },
+      { "name": "Healer", "origin": "neutral", "mana_cost": 4, "count": 2 },
+      { "name": "Elk", "origin": "forest", "mana_cost": 5, "count": 2 }
+    ],
+    "problems": [{ "kind": "neutral", "cards": ["Scout", "Healer"] }]
+  },
+  {
+    "case": "the same neutral cards are fine when the rules allow them",
+    "rules": { "size": 10, "max_copies": 2, "allow_neutral": true },
+    "deck_origin": "forest",
+    "cards": [
+      { "name": "Wolf", "origin": "forest", "mana_cost": 1, "count": 2 },
+      { "name": "Scout", "origin": "neutral", "mana_cost": 2, "count": 2 },
+      { "name": "Bear", "origin": "forest", "mana_cost": 3, "count": 2 },
+      { "name": "Healer", "origin": "neutral", "mana_cost": 4, "count": 2 },
+      { "name": "Elk", "origin": "forest", "mana_cost": 5, "count": 2 }
+    ],
+    "problems": []
+  },
+  {
+    "case": "a neutral deck passes when neutral cards aren't allowed: they are its own origin",
+    "rules": { "size": 10, "max_copies": 2, "allow_neutral": false },
+    "deck_origin": "neutral",
+    "cards": [
+      { "name": "Scout", "origin": "neutral", "mana_cost": 1, "count": 2 },
+      { "name": "Healer", "origin": "neutral", "mana_cost": 2, "count": 2 },
+      { "name": "Squire", "origin": "neutral", "mana_cost": 3, "count": 2 },
+      { "name": "Monk", "origin": "neutral", "mana_cost": 4, "count": 2 },
+      { "name": "Page", "origin": "neutral", "mana_cost": 5, "count": 2 }
+    ],
+    "problems": []
+  },
+  {
+    "case": "every problem at once, in the order size, copies, neutral",
+    "rules": { "size": 12, "max_copies": 2, "allow_neutral": false },
+    "deck_origin": "forest",
+    "cards": [
+      { "name": "Wolf", "origin": "forest", "mana_cost": 1, "count": 3 },
+      { "name": "Scout", "origin": "neutral", "mana_cost": 2, "count": 4 }
+    ],
+    "problems": [
+      { "kind": "size", "count": 7, "size": 12 },
+      { "kind": "copies", "max": 2, "cards": ["Wolf", "Scout"] },
+      { "kind": "neutral", "cards": ["Scout"] }
+    ]
+  }
+]

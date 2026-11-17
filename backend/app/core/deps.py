@@ -6,8 +6,10 @@ from fastapi import Depends, Query, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.requests import HTTPConnection
 
 from app.core.config import Settings, get_settings
+from app.core.db import SessionFactory
 from app.core.errors import UnauthorizedError
 from app.core.logging_config import get_logger
 from app.core.middleware import bind_user_id
@@ -15,6 +17,7 @@ from app.core.security import TokenType, decode_token
 from app.models.user import User
 from app.schemas.common import DEFAULT_PAGE_LIMIT, MAX_PAGE_LIMIT, PageParams
 from app.services import auth_service
+from app.services.live_rooms import LiveRooms
 from app.storage.client import S3Client
 
 # auto_error=False: a missing or non-Bearer header gets our error body, not FastAPI's.
@@ -31,6 +34,22 @@ async def get_db(request: Request) -> AsyncIterator[AsyncSession]:
 def get_redis(request: Request) -> Redis:
     redis: Redis = request.app.state.redis
     return redis
+
+
+# The two below take an HTTPConnection, not a Request, so the game socket can use them too: a
+# WebSocket route can't fill a Request parameter.
+
+
+def get_session_factory(conn: HTTPConnection) -> SessionFactory:
+    """For the game socket, which opens a short session when it needs one: a session held for
+    a whole game would keep a database connection busy."""
+    factory: SessionFactory = conn.app.state.session_factory
+    return factory
+
+
+def get_rooms(conn: HTTPConnection) -> LiveRooms:
+    rooms: LiveRooms = conn.app.state.rooms
+    return rooms
 
 
 def get_s3(request: Request) -> S3Client:
@@ -89,3 +108,5 @@ Db = Annotated[AsyncSession, Depends(get_db)]
 S3 = Annotated[S3Client, Depends(get_s3)]
 AppSettings = Annotated[Settings, Depends(get_settings)]
 Pagination = Annotated[PageParams, Depends(get_page_params)]
+Sessions = Annotated[SessionFactory, Depends(get_session_factory)]
+Rooms = Annotated[LiveRooms, Depends(get_rooms)]

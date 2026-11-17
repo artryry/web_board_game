@@ -4,19 +4,24 @@ import contextvars
 from collections.abc import AsyncGenerator
 from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 from fastapi import FastAPI
 from redis.asyncio import Redis
 
 from app.api.router import api_router
+from app.core.clock import SystemClock
 from app.core.config import get_settings
 from app.core.db import create_engine, create_session_factory
 from app.core.errors import register_error_handlers
 from app.core.logging_config import configure_logging, get_logger
 from app.core.middleware import RequestContextMiddleware
 from app.frontend import mount_frontend
-from app.services import art_cleanup_service
+from app.services import art_cleanup_service, room_service
 from app.storage.client import create_s3_client
+from app.ws.handler import router as ws_router
+from app.ws.manager import ConnectionManager
+from app.ws.protocol import message_schemas
 
 log = get_logger(__name__)
 
@@ -43,9 +48,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             # Hosted Redis can drop connections that sit idle; one unused for this many seconds
             # is pinged before it is reused, instead of failing the first command.
             health_check_interval=30,
+            # A hung command fails instead of holding a room's lock for good.
+            socket_timeout=settings.redis_timeout_s,
+            socket_connect_timeout=settings.redis_timeout_s,
         )
         stack.push_async_callback(redis.aclose)
         app.state.redis = redis
+
+        # Rooms live in Redis; their locks, sockets and timers live in this process.
+        connections = ConnectionManager()
+        rooms = room_service.create_room_runtime(redis, settings, SystemClock(), connections)
+        app.state.connections = connections
+        app.state.rooms = rooms
+        # Pushed after Redis, so the room tasks stop before the client closes.
+        stack.push_async_callback(rooms.aclose)
 
         app.state.s3 = await stack.enter_async_context(create_s3_client(settings))
 
@@ -72,9 +88,24 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         log.info("app.stopped")
 
 
+class CardTableApi(FastAPI):
+    def openapi(self) -> dict[str, Any]:
+        """The schema, plus the game socket's messages as components with no route, so
+        `npm run gen:api` gives the frontend their types too."""
+        schema = super().openapi()
+        components = schema.setdefault("components", {}).setdefault("schemas", {})
+        for name, definition in message_schemas().items():
+            existing = components.setdefault(name, definition)
+            if existing != definition:
+                # Two models with one name, or one model written two ways: the frontend would
+                # get the wrong type for one of them.
+                raise RuntimeError(f"Two different OpenAPI schemas are named {name!r}")
+        return schema
+
+
 def create_app(frontend_dist_dir: Path | None = None) -> FastAPI:
     # The schema and docs live under /api so nginx proxies them like every other request.
-    app = FastAPI(
+    app = CardTableApi(
         title="Card Table API",
         lifespan=lifespan,
         openapi_url="/api/openapi.json",
@@ -84,6 +115,8 @@ def create_app(frontend_dist_dir: Path | None = None) -> FastAPI:
     register_error_handlers(app)
     app.add_middleware(RequestContextMiddleware)
     app.include_router(api_router)
+    # The game socket, at /ws/rooms/{code}.
+    app.include_router(ws_router)
     # After the API routes, so the frontend's catch-all never shadows them.
     if frontend_dist_dir is not None:
         mount_frontend(app, frontend_dist_dir)
