@@ -6,6 +6,7 @@ import { SelectField } from "@/ui/SelectField";
 
 import { deckSize, type DeckEntry } from "./deckEntries";
 import { deckProblems } from "./deckProblems";
+import { deckProblemText } from "./problemText";
 
 interface DeckValidityPanelProps {
   entries: readonly DeckEntry[];
@@ -46,8 +47,7 @@ export function DeckValidityPanel({
 
   let neutralText = "Neutral cards allowed";
   if (!rules.allow_neutral) {
-    if (neutral !== undefined)
-      neutralText = `Neutral cards not allowed: ${neutral.cards.join(", ")}`;
+    if (neutral !== undefined) neutralText = deckProblemText(neutral);
     else if (originId === neutralId) neutralText = "Neutral cards are this deck's own origin";
     else neutralText = "No neutral cards";
   }
@@ -77,7 +77,7 @@ export function DeckValidityPanel({
         <Check ok={copies === undefined}>
           {copies === undefined
             ? `At most ${rules.max_copies} of each card`
-            : `More than ${rules.max_copies} copies: ${copies.cards.join(", ")}`}
+            : deckProblemText(copies)}
         </Check>
         <Check ok={neutral === undefined}>{neutralText}</Check>
       </ul>

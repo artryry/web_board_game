@@ -873,7 +873,7 @@ Art used to be kept forever. Orphans come from deleted cards and origins, art th
 
 M0–M6 are done (§1).
 
-The frontend milestones (F0–F6) in [frontend_plan.md](frontend_plan.md) are designed to start once the matching backend milestone is done.
+The frontend milestones (F0–F6) in [frontend_plan.md](frontend_plan.md) are designed to start once the matching backend milestone is done. F4 (2026-11-21) uses M6's Rooms routes and the game socket as they are: it needed no backend change.
 
 Some cross-cutting features were built between milestones, outside this table: deployment (§10.1), logging (§10.2) and art cleanup (§10.3).
 

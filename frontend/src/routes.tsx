@@ -12,6 +12,8 @@ import { DeckBuilderPage } from "@/features/decks/DeckBuilderPage";
 import { DeckListPage } from "@/features/decks/DeckListPage";
 import { OriginEditorPage } from "@/features/origins/OriginEditorPage";
 import { OriginListPage } from "@/features/origins/OriginListPage";
+import { CreateRoomPage } from "@/features/rooms/CreateRoomPage";
+import { RoomPage } from "@/features/rooms/RoomPage";
 import { RulesEditorPage } from "@/features/rules/RulesEditorPage";
 import { RulesListPage } from "@/features/rules/RulesListPage";
 import { ImportPage } from "@/features/share/ImportPage";
@@ -53,6 +55,8 @@ export const routes: RouteObject[] = [
               { path: "/rules/new", element: <RulesEditorPage /> },
               { path: "/rules/:id", element: <RulesEditorPage /> },
               { path: "/share/:code", element: <ImportPage /> },
+              { path: "/rooms/new", element: <CreateRoomPage /> },
+              { path: "/room/:code", element: <RoomPage /> },
               { path: "*", element: <NotFoundPage /> },
             ],
           },

@@ -7,6 +7,7 @@ import { Button } from "@/ui/Button";
 import { ErrorAlert } from "@/ui/ErrorAlert";
 import { Modal } from "@/ui/Modal";
 import { TextField } from "@/ui/TextField";
+import { useCopyText } from "@/ui/useCopyText";
 
 import { shareLink } from "./shareLink";
 
@@ -93,23 +94,12 @@ interface SharedCodeProps {
 }
 
 function SharedCode({ kind, code, revoking, revokeError, onRevoke }: SharedCodeProps) {
-  const [copied, setCopied] = useState<"no" | "yes" | "failed">("no");
   const [confirmingRevoke, setConfirmingRevoke] = useState(false);
   const linkRef = useRef<HTMLInputElement>(null);
   const link = shareLink(code);
-
-  async function copyLink() {
-    try {
-      await navigator.clipboard.writeText(link);
-      setCopied("yes");
-    } catch (error) {
-      // Some browsers refuse the clipboard (permissions, an insecure page): the selected link
-      // lets the user copy it by hand.
-      log.warn("share.copy_failed", { kind }, error);
-      linkRef.current?.select();
-      setCopied("failed");
-    }
-  }
+  const copyText = useCopyText((error) => {
+    log.warn("share.copy_failed", { kind }, error);
+  });
 
   if (confirmingRevoke) {
     return (
@@ -149,8 +139,8 @@ function SharedCode({ kind, code, revoking, revokeError, onRevoke }: SharedCodeP
         }}
       />
       <p role="status" className="text-sm text-text-muted">
-        {copied === "yes" && "Copied"}
-        {copied === "failed" && "Couldn't copy the link. It's selected: copy it by hand."}
+        {copyText.status === "copied" && "Copied"}
+        {copyText.status === "failed" && "Couldn't copy the link. It's selected: copy it by hand."}
       </p>
       <div className="flex flex-wrap justify-end gap-3">
         <Button
@@ -161,7 +151,7 @@ function SharedCode({ kind, code, revoking, revokeError, onRevoke }: SharedCodeP
         >
           Revoke
         </Button>
-        <Button onClick={() => void copyLink()}>Copy link</Button>
+        <Button onClick={() => void copyText.copy(link, linkRef.current)}>Copy link</Button>
       </div>
     </>
   );

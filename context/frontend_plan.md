@@ -23,7 +23,7 @@ The frontend for the card-game constructor described in [project_description.md]
 | Build | Vite 8, React 19, TypeScript 5.9 (`strict`, `noUncheckedIndexedAccess`, the `@/` alias for `src/`) |
 | Routing | React Router 8 in data mode: `createBrowserRouter`, with `RouterProvider` from `react-router/dom` (not framework mode) |
 | Server data | TanStack Query 5. Client errors (4xx) are never retried. |
-| Live game state | Zustand (added in F4/F5, when the game store lands) |
+| Live game state | Zustand 5.1.0, added in F4 (2026-11-21) for `ws/gameStore.ts`: the room and the game from the game socket |
 | Drag-and-drop | dnd-kit: `@dnd-kit/core` 6.3.1 in F2 (the deck builder: library cards onto the deck, pointer sensor only), `@dnd-kit/sortable` 10.0.0 in F3 (the phase pipelines, pointer only; Move up/down buttons are the keyboard path). The newer `@dnd-kit/react` was still pre-1.0 (0.5.3) when F2 was built (2026-11-12). |
 | Animation | Framer Motion, added in F5 |
 | Icons | `lucide-react`, added in F1. Each icon is imported by name, so the bundle holds only the ones used: the catalog's 16 origin icons (all Lucide names) and a few UI icons. |
@@ -31,7 +31,7 @@ The frontend for the card-game constructor described in [project_description.md]
 | Forms | React Hook Form + a small home-made `SchemaForm` for module params (it supports int, number with min/max, enum, bool and arrays of enums; an array with `uniqueItems` renders as checkboxes). The backend guarantees every catalog schema is inline (no `$ref`) and uses only these types. Labels come from each property's `title`. This is lighter than rjsf. |
 | API client | `openapi-fetch`, typed by the generated `paths`, with our own `fetch` that adds the bearer token and handles refresh (§6) |
 | API types | `openapi-typescript`, generated from `http://localhost/api/openapi.json` into the committed `src/api/schema.d.ts` (`npm run gen:api`) |
-| Tests | Vitest 5 + React Testing Library + jsdom, with MSW 3 mocking the API; Playwright (Chromium) for end-to-end tests through nginx |
+| Tests | Vitest 5 + React Testing Library + jsdom, with MSW 3 mocking the API and the game socket (`ws.link`, which patches jsdom's `WebSocket`); Playwright (Chromium) for end-to-end tests through nginx |
 | Lint, format | ESLint 10 flat config (`typescript-eslint` strict type-checked, `react-hooks`, `react-refresh`, `jsx-a11y`), Prettier with width 100 and the Tailwind class sorter |
 
 **Versions** are pinned exactly (`.npmrc` has `save-exact=true`), and `package-lock.json` is committed. Node 24 (`engines`, `.nvmrc`). They are the newest releases that fit together (checked 2026-11-06):
@@ -71,9 +71,11 @@ frontend/
                          origin in full), useCardGroups, useArtUpload, fetchAllPages, useDecks,
                          useRulesets (findDefaultRuleset, CRUD, useRulesetValidation: the
                          debounced /validate), useShare (share, revoke, preview, import; decks,
-                         card groups and rulesets); later useRooms ...
+                         card groups and rulesets), useRooms (create, join, the room page's join
+                         with handOffRoom, the dashboard's useRoom, the room's deck list)
     auth/
       tokens.ts          access token in memory, the session hint in localStorage, cross-tab logout
+      tokenExpiry.ts     a JWT's `exp`, read without checking it (the game socket renews early)
       AuthContext.ts     auth state and context types
       AuthProvider.tsx   restores the session on start; login, register, logout
       useAuth.ts         useAuth, useCurrentUser
@@ -108,7 +110,8 @@ frontend/
                          DeckLibraryPanel, LibraryCardButton, DeckPanel (the drop target),
                          OriginChangeDialog, useLibraryCards,
                          ManaCurveChart, DeckValidityPanel; pure: deckEntries, manaCurve,
-                         deckProblems (F4's lobby reuses it)
+                         deckProblems (the builder's own check), problemText (a problem in words,
+                         shared with the lobby, whose problems come from the server)
       rules/             RulesListPage, RulesetListItem, DeleteRulesetDialog, RulesEditorPage,
                          RulesEditor (the form, the validation, Save), RulesHeader,
                          ValidationStatus, RulesSettingsForm (SettingNumber, SettingCheckbox,
@@ -119,7 +122,13 @@ frontend/
                          phaseList, ruleErrors (placeRuleErrors, errorPlace), settingFields
       share/             ShareDialog (decks, card groups, rule sets), shareLink, ImportPage, ImportPanel,
                          SharedContent, SharedCards
-      rooms/             CreateRoomPage, JoinByCodeDialog, LobbyView
+      rooms/             PlaySection (the dashboard's: Create room, JoinByCodeDialog, BackToRoom),
+                         CreateRoomPage, ShowRules, RoomPage (the join), RoomSession (the
+                         socket's life, the banner, the leave guard), RoomEnded, RoomMessage,
+                         LobbyView (InviteBox, PlayerSlots, RoomDeckPicker, ReadyButton,
+                         LeaveRoomButton), GamePlaceholder until F5 (AwayCountdown, GameResult);
+                         pure: lastRoom (Back to room's storage), roomPlayers, countdown,
+                         resultText
       game/              GameView, GameBoard, Lane, Section, Slot, CreatureCard,
                          Hand, HandCard, OpponentHand, DeckPile, ManaBar,
                          PhaseTracker, TurnTimer, ActionLog, GameOverModal
@@ -132,20 +141,26 @@ frontend/
       pageViews.ts       nav.page_viewed breadcrumbs from the router
       serializeError.ts, installLogging.ts (called in main.tsx)
     ws/
-      socket.ts          RoomSocket: connect, reconnect with backoff, seq, resync
-      gameStore.ts       Zustand store for room and game state
-      eventQueue.ts      plays server events one after another as animations
+      messages.ts        the socket's message unions (from schema.d.ts) and parseServerMessage
+      socket.ts          RoomSocket: auth, seq, ping, the close codes, reconnect with backoff
+      gameStore.ts       Zustand store for room and game state (applyServerMessage is pure)
+      eventQueue.ts      F5: plays server events one after another as animations
     ui/                  Button, ButtonLink, IconButton, TextField, SelectField, Modal, ConfirmDialog,
                          ErrorAlert, InUseList, LoadingState, Spinner, CardFrame,
-                         useLeaveGuard + LeaveGuardDialog (the deck builder and the rules editor),
-                         useDebouncedValue, dragDistance; later Toast, Tabs, HpBar
+                         useLeaveGuard + LeaveGuardDialog (the deck builder, the rules editor and
+                         a running game), useDebouncedValue, dragDistance, useCopyText (the
+                         clipboard, or a selected field to copy by hand), useNow; later Toast,
+                         Tabs, HpBar
     styles/              index.css: Tailwind and the @theme design tokens
     test/                Vitest setup, MSW fake API (auth handlers, content, deck and share handlers
                          over an in-memory store, ruleset handlers with a simplified /validate,
-                         catalog and ruleset fixtures, a fake R2), renderApp, renderWithForm and
-                         rulesEditor helpers,
+                         catalog and ruleset fixtures, a fake R2), the rooms (roomStore, the REST
+                         roomHandlers, roomServer: a fake game socket for the test user, with
+                         controls for the other player and the close codes; gameViewFixture),
+                         renderApp, renderWithForm and rulesEditor helpers,
                          logCapture (a memory log sink: tests check entries, the console stays quiet)
-  e2e/                   Playwright specs (and global-setup.ts, which checks /api/health)
+  e2e/                   Playwright specs (and global-setup.ts, which checks /api/health; seed.ts
+                         makes a user's rule set, cards and decks through the REST API)
 ```
 
 ## 3. Pages and routes
@@ -153,7 +168,7 @@ frontend/
 | Route | Page | Main contents |
 |---|---|---|
 | `/login`, `/register` | Auth | Forms. After login, go back to the page the user came from. |
-| `/` | Dashboard | My origins, cards, decks and rulesets (counts and most recent); **Create room**; **Join by code** |
+| `/` | Dashboard | A **Play** section: **Create room**, **Join by code** (a dialog; a wrong code or a full room shows in it), and **Back to room** for the last room this browser joined, as this user, while it's in the lobby or playing (`cardtable.lastRoom` in localStorage; forgotten on a 404 or a finished room). Then the counts of cards, card groups and decks. |
 | `/origins` | Origin list | My origins plus system origins (read-only, marked "template", with a **Duplicate** button); new / edit / delete |
 | `/origins/new`, `/origins/:id` | Origin editor | See §4.0 |
 | `/cards` | Card library | Cards organised by **group** (folders, plus "Ungrouped"): create, rename and delete groups, and move cards between them. A grid with filters (origin, kind). A cost filter waits for a backend filter on `GET /api/cards` (dropped from F1 on 2026-11-10). Each card shows its **balance label** (*under-costed / balanced / over-costed*) from the server, as information only. New / edit / delete. Share a group by code (F2). |
@@ -163,8 +178,8 @@ frontend/
 | `/rules` | Rules list | The default rule set (View, Duplicate), then my own by name (Edit, Duplicate, Share, Delete), each with a summary ("3 lanes · 30-card decks · 4 turn phases") and a "Shared" mark |
 | `/rules/new`, `/rules/:id` | Rules editor | See §4.3. `/rules/new` starts from the default; `?from=<id>` duplicates a rule set as "<name> copy". Nothing is created until Save. |
 | `/share/:code` | Import | Preview of a shared deck, card group or ruleset → **Import to my library** |
-| `/rooms/new` | Create room | Pick a ruleset → `POST /api/rooms` → go to `/room/:code` |
-| `/room/:code` | Lobby, then game | See §4.4 and §5. The same route switches from lobby to game when the game starts. |
+| `/rooms/new` | Create room | Pick a ruleset (the default first, with **Show rules**) → `POST /api/rooms` → go to `/room/:code`, replacing the form in the history |
+| `/room/:code` | Lobby, then game | See §4.4 and §5. The page joins on load (`POST /api/rooms/join`, which a member gets again), so the link is the invitation; a code in lower case is replaced by the room's own. The same route switches from lobby to game when the game starts. |
 | `/games`, `/games/:id` | History / replay | Past matches; step-by-step replay |
 
 ## 4. Builders
@@ -256,12 +271,15 @@ frontend/
   - Leaving with unsaved changes asks first, as in the deck builder.
 
 ### 4.4 Lobby (`/room/:code` before the game starts)
-- A big invite code with a copy button and a copyable link.
-- Player slots for host and guest, each with a connected and a ready indicator. The opponent's deck shows only as "chosen" (`has_deck`); its origin shows on the board once the game starts.
-- **A deck selector fed by the server:** `GET /api/rooms/{code}/decks` lists the user's decks with their `problems` under the room's ruleset (backend M6). Decks with problems are shown but can't be picked, with the problems as the reason. The server checks again on `select_deck` (`deck_not_playable` with the problems).
-- A ready button (`ready: true`, and `false` to take it back). Picking another deck clears it, and so does a disconnect. When both players are ready, the server starts the game and the view switches to the board.
-- **Leave:** the guest frees their seat (the socket closes with 1000); the host closes the room, and the guest sees "The host closed the room" (`room_closed`).
-- **During a game, an opponent who is away** (`away_since` in `room_state`) shows a countdown to `away_since + 60 s`, after which they lose (`abandoned`).
+Built in F4 (2026-11-21).
+- **Joining:** by code from the dashboard's dialog, or by opening the link: the room page always joins, which is safe for a member. The dialog's (or Create room's) answer is handed to the page, which then doesn't join again.
+- A big invite code with a copy button and a copyable link. A refused clipboard selects the field to copy by hand (`useCopyText`).
+- The room's rule set: its name and summary, and **Show rules** (read-only). It's the room's copy; later edits don't change it.
+- Player slots for host and guest, each with Online/Offline (an icon and a word) and Ready. The opponent's deck shows only as "Deck chosen" (`has_deck`); its origin shows on the board once the game starts.
+- **A deck selector fed by the server:** `GET /api/rooms/{code}/decks` lists the user's decks with their `problems` under the room's ruleset (backend M6). Decks with problems are shown but can't be picked, with the problems as the reason (`problemText`) and **Edit deck** (a new tab). The list loads again when the tab gets the focus back (`staleTime: 0`). Picking a deck sends `select_deck` at once, and the server's `my_deck` checks it; clicking the chosen deck again sends it again, since the room keeps a copy. The server checks again on `select_deck` (`deck_not_playable` with the problems shows at that deck; `deck_not_found` says it was deleted; both reload the list).
+- A ready toggle ("I'm ready", `aria-pressed`, `ready: true` and `false` to take it back), off until a deck is chosen. It shows only the server's `ready`: picking another deck clears it, and so does a disconnect. When both players are ready, the server starts the game and the view switches to the game (a placeholder until F5: who plays first, Surrender, the result).
+- **Leave:** the guest frees their seat at once (the socket closes with 1000); the host's **Close room** asks first, and the guest sees "The host closed the room" (`room_closed`). Leaving the page another way asks nothing in the lobby (the seat is kept); during a game it asks, since 60 s away loses.
+- **During a game, an opponent who is away** (`away_since` in `room_state`) shows a countdown to `away_since + 60 s`, on the server's clock, after which they lose (`abandoned`).
 
 ## 5. Game board
 
@@ -315,17 +333,18 @@ frontend/
 - **Logout** forgets the access token and the hint and clears the query cache, then calls `POST /api/auth/logout`, because only the server can delete an HttpOnly cookie. Removing the hint fires a `storage` event, which logs out the app's other tabs. The backend keeps refresh tokens stateless; revocation is a later backend task that needs no UI change.
 - Every way a session ends lands in one place (`onSessionEnd`). An intended logout (in this tab or another) sends the user to `/login` without a return page. An expired session or a deep link remembers the page, and the login goes back there.
 
-- `RoomSocket` (`ws/socket.ts`), for the protocol in backend_plan §9.2:
-  - connects to `/ws/rooms/{code}` (no token in the URL) and sends `auth {token}` first, within 10 s
-  - numbers outgoing messages with `seq`
-  - drops any `game_state` whose `view.version` is older than the current one
-  - sends `ping` about every 30 s, so idle proxies keep the socket open
-  - counts down to `deadline` with its clock corrected by `server_time`
-  - **close codes:** 4401 refreshes the token, then reconnects; 4403 and 4404 leave the room page ("You're not in this room" / "This room is gone"); 4409 means another tab took over (no reconnect, say so); 1000 after `room_closed` leaves the room; 1013 and anything else reconnect
-  - reconnects with exponential backoff (1 s, 2 s, 4 s, up to 15 s), gets the full state on connect, and shows a *Reconnecting…* banner meanwhile. A game counts the player as away while the socket is gone: they lose after 60 s.
-  - refreshes the JWT before reconnecting if it has expired
-- The message types come from the generated `schema.d.ts` (`RoomStateMessage`, `GameStateMessage`, `ActionMessage`, …): the backend publishes them as OpenAPI components.
-- The Zustand `gameStore` holds `connection`, `room`, `view`, `version`, `legalActions` (with the index), `eventQueue`, `pendingAction`, `deadline` and `result`.
+- `RoomSocket` (`ws/socket.ts`, built in F4), for the protocol in backend_plan §9.2:
+  - connects to `/ws/rooms/{code}` on `apiOrigin()` with `ws`/`wss` (no token in the URL) and sends `auth {token}` first, on `open`
+  - before each connect, refreshes the session when there's no access token or its `exp` (read from the JWT, not checked; `auth/tokenExpiry.ts`) is less than 30 s away. A token whose `exp` can't be read is sent as it is. A refresh that says the session ended stops the socket; the app's session handling goes to `/login`.
+  - numbers outgoing messages with `seq`, from 1 for the life of the `RoomSocket`, across reconnects. Messages without a payload send `payload: {}`. Nothing is queued: while it isn't open, the page's controls are off.
+  - counts as open at the first `room_state` (the server took `auth`), not at the socket's `open`
+  - drops any `game_state` whose `view.version` is older than the newest one, and any frame that doesn't parse or has an unknown `type`
+  - sends `ping` every 30 s, so idle proxies keep the socket open
+  - F5: counts down to `deadline` with its clock corrected by `server_time` (F4's away countdown already uses that offset)
+  - **close codes:** 4401 refreshes the token and reconnects at once, and a second 4401 in a row ends ("Couldn't sign in to the room", Try again); 4403 and 4404 end ("You're not in this room any more" / "This room is gone"); 4409 means another tab took over (no reconnect; **Use it here** connects again, which moves the other tab to this message); 1000 after `room_closed`, or after the player's own `leave`, ends; any other close (another 1000, 1011, 1012, 1013, 1006) reconnects
+  - reconnects with backoff (1 s, 2 s, 4 s, 8 s, then 15 s each time; it resets once a connection gets its room), gets the full state on connect (so no `resync`), and shows a *Reconnecting…* banner meanwhile, with the controls off. A game counts the player as away while the socket is gone: they lose after 60 s, which the banner says.
+- The message types come from the generated `schema.d.ts` (`RoomStateMessage`, `GameStateMessage`, `ActionMessage`, …): the backend publishes them as OpenAPI components. `ws/messages.ts` only puts them into unions.
+- The Zustand `gameStore` holds, as of F4: `code`, `connection` (`connecting`, `open`, `reconnecting`, or `ended` with a reason), `room`, `game` (`view`, `legalActions`, `deadline`), `clockOffset` (server minus client), `result` (from `game_over`, or the finished view after a reload), `lastError` (cleared by the next `room_state`), and `deckError` (a refused `select_deck`, matched by its `seq`). The room page opens it with the join's `RoomState`, so the lobby draws before the socket answers, and closing it resets it. F5 adds the `legalActions` index, `eventQueue` and `pendingAction`.
 - REST data (cards, decks, rulesets) stays in TanStack Query. Only live room and game state goes in Zustand.
 
 ### 6.1 Logging
@@ -344,7 +363,7 @@ Built 2026-11-11, with the server side (backend_plan §10.2).
   - `window.error` and `window.unhandled_rejection`
   - `nav.page_viewed` (debug)
 - **Errors** are caught in one place (`log/errorHandlers.ts`) and logged once each: React's root hooks, the router's `onError`, window `error` (bubble phase; "Script error." and extensions are skipped) and `unhandledrejection`. A route that throws shows `RouteErrorPage`.
-- **For F4–F5:** `RoomSocket` logs `ws.connected`, `ws.reconnecting` (attempt, delay), `ws.closed` (code), `ws.server_error` (`reason`, `seq`) and `game.stale_state_dropped`, never the URL with its token.
+- **The game socket (F4):** `ws.connected` (debug, `room_code`), `ws.closed` (info, `code`, `room_code`), `ws.reconnecting` (info, `attempt`, `delay_ms`, `code`), `ws.server_error` (info, `reason`, `seq`: an expected refusal, like a 4xx), `ws.bad_server_message` (warn, `type`), `game.stale_state_dropped` (debug, `version`, `current`), `room.copy_failed` (warn, `what`) and `auth.token_exp_unreadable` (debug). Never the token or a message body. Creating and joining a room log nothing of their own: the server logs `room.created` and `room.joined`.
 
 ## 7. Milestones (each one depends on the backend milestone named)
 
@@ -358,7 +377,7 @@ Built 2026-11-11, with the server side (backend_plan §10.2).
 | F5 | Game board: static render from a mocked state → live WS → drag-and-drop from `legal_actions` → event animations | M5, M6 | Two browsers can play a full game to a win |
 | F6 | Match history, replay viewer, responsive layout, polish | M7 | Past games can be replayed step by step; the board works on a tablet |
 
-Done: F0 and F1 (2026-11-10), F2 (2026-11-12).
+Done: F0 and F1 (2026-11-10), F2 (2026-11-12), F3 (2026-11-13), F4 (2026-11-21; a started game shows a placeholder until F5's board).
 
 Tip: build the board in F5 against **mock `game_state` JSON fixtures** first (and reuse the backend's golden-replay fixtures), so UI work doesn't have to wait for the live WebSocket.
 

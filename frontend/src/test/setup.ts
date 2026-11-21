@@ -6,6 +6,7 @@ import { endSession } from "@/auth/tokens";
 
 import { resetContentStore } from "./contentStore";
 import { captureLogs } from "./logCapture";
+import { resetRoomStore } from "./roomStore";
 import { server } from "./server";
 
 // A page waits for the session, the catalog and its lists before it renders; 1 s (the default
@@ -45,6 +46,7 @@ afterEach(() => {
   cleanup();
   server.resetHandlers();
   resetContentStore();
+  resetRoomStore();
   endSession("logout");
   localStorage.clear();
 });
